@@ -2937,6 +2937,16 @@ p{{line-height:1.55;color:#c5d2e6}}</style><main><h1>Tham gia làm máy khách</
     def app_page():
         return _dashboard_html()
 
+    @app.get("/business")
+    def business_page():
+        return FileResponse(os.path.join(os.path.dirname(__file__), "static",
+                                         "business.html"))
+
+    @app.get("/night-shift")
+    def night_shift_page():
+        return FileResponse(os.path.join(os.path.dirname(__file__), "static",
+                                         "night-shift.html"))
+
     @app.websocket("/ws")
     async def ws(sock: WebSocket):
         # Không nhận token trên query (tránh lộ access/proxy log).

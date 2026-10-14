@@ -24,7 +24,7 @@ scripts/bench_llm/results_verify/
 scripts/bench_llm/assets/
 scripts/bench_llm/*.gguf
 artifacts/
-
+brag-output/
 # Cấu hình và tài liệu nội bộ của môi trường phát triển.
 .agent/
 .agents/

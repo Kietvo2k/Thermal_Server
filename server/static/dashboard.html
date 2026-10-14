@@ -389,7 +389,7 @@
       transform var(--fast) var(--ease);
   }
   :root[data-theme="dark"] button:not(.ghost),
-  :root[data-theme="dark"] a.btn { color:#08171c; }
+  :root[data-theme="dark"] a.btn:not(.ghost) { color:#08171c; }
   button:hover, a.btn:hover { background:var(--primary-hover); border-color:var(--primary-hover); }
   button:active, a.btn:active { transform:translateY(1px); }
   button:disabled, a.btn[aria-disabled="true"] { opacity:.48; cursor:not-allowed; transform:none; }
@@ -660,7 +660,7 @@
   @media (max-width:768px) {
     .landing-nav { align-items:flex-start; padding:12px 0; }
     .landing-nav-actions { justify-content:flex-end; flex-wrap:wrap; }
-    .landing-nav-actions > .ghost:not(.theme-toggle) { display:none; }
+    .landing-nav-actions > .ghost:not(.theme-toggle):not(a) { display:none; }
     .landing-main { padding-top:42px; }
     .landing-hero h1 { font-size:clamp(42px,13vw,64px); }
     .landing-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -719,6 +719,8 @@
       <span>Thermal Orchestrator</span>
     </div>
     <div class="landing-nav-actions">
+      <a class="btn ghost" href="/business" style="display:inline-flex;align-items:center">Business case</a>
+      <a class="btn ghost" href="/night-shift" style="display:inline-flex;align-items:center">Night demo</a>
       <button class="ghost theme-toggle" id="themeToggleLanding" type="button" aria-label="Turn on dark mode" aria-pressed="false" onclick="toggleTheme()">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4m0-12.8L17 7m-10 10-1.4 1.4M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         <span class="theme-toggle-text">Dark mode</span>

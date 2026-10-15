@@ -210,7 +210,7 @@
 <body>
 <header class="topbar">
   <div class="wrap">
-    <a class="brand" href="/">
+    <a class="brand" href="dashboard.html">
       <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" fill="none">
         <path d="M10 6a8 8 0 1 1-2.8 15.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
         <path d="M10 6v11.2a4 4 0 1 0 4.5 0V6a2.25 2.25 0 0 0-4.5 0Z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
@@ -219,9 +219,9 @@
       <span>Thermal Orchestrator</span>
     </a>
     <nav class="topnav" aria-label="Main">
-      <a href="/">Home</a>
-      <a href="/business" aria-current="page">Business case</a>
-      <a href="/night-shift">Night demo</a>
+      <a href="dashboard.html">Home</a>
+      <a href="business.html" aria-current="page">Business case</a>
+      <a href="night-shift.html">Night demo</a>
     </nav>
     <button class="ghost theme-toggle" type="button" aria-pressed="false" aria-label="Turn on dark mode">
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4m0-12.8L17 7m-10 10-1.4 1.4M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -235,9 +235,9 @@
   <section class="hero">
     <div class="wrap">
       <h1>Your school's computers sleep 13 hours a night. We put them to work.</h1>
-      <p class="lede">Thermal Orchestrator runs AI jobs on the PCs a school already owns, after the last class ends. It watches each machine's temperature, so jobs move away before a PC runs hot.</p>
+      <p class="lede">Thermal Orchestrator runs AI jobs on the PCs a school already owns, after the last class ends. It watches each machine's temperature, so a PC that is getting too hot gets no new jobs.</p>
       <div class="actions">
-        <a class="btn" href="/night-shift">Watch a night run</a>
+        <a class="btn" href="night-shift.html">Watch a night run</a>
         <a class="btn ghost" href="#calculator">Try the cost calculator</a>
       </div>
 
@@ -275,6 +275,22 @@
         <li><b>A GPU server is expensive.</b> Around <span data-m="250"></span> up front (our assumption) before any AI work starts.</li>
         <li><b>Data should stay inside.</b> Cloud AI means student data leaves the school network.</li>
       </ul>
+    </div>
+  </section>
+
+  <!-- 2b. How it works -->
+  <section>
+    <div class="wrap">
+      <h2>How it works: one Host, many Workers</h2>
+      <p>One Host PC runs the central software. It keeps the job queue and hands out jobs. Workers are PCs the school has approved. Each Worker runs its own job and sends the result back to the Host. Workers are not merged into one big computer.</p>
+      <ol class="journey">
+        <li><b>Take in jobs</b>The Host puts the night's work in a queue.</li>
+        <li><b>Check Workers</b>The Host reads each Worker's temperature, load and connection.</li>
+        <li><b>Assign</b>A Worker that is too hot, offline or busy gets no new job.</li>
+        <li><b>Watch safety</b>The Host keeps reading each Worker's temperature. A Worker that is predicted to get too hot gets no new jobs. If a Worker stops answering, the Host takes its job back.</li>
+        <li><b>Report</b>The Host combines the results into a morning report for a person to check.</li>
+      </ol>
+      <p class="small muted">Planned, not built yet: move a running job off a PC that is getting too hot, and pause a job when a staff member starts using that PC again.</p>
     </div>
   </section>
 
@@ -340,10 +356,12 @@
             <tr><th scope="row">Add 10 more PCs</th><td class="r" data-vnd="36" data-per=" / year"></td><td class="r muted" data-usd="36" data-per=" / year"></td></tr>
             <tr><th scope="row">Extra training</th><td class="r" data-vnd="5" data-per=" / session"></td><td class="r muted" data-usd="5" data-per=" / session"></td></tr>
             <tr><th scope="row">Priority support</th><td class="r" data-vnd="18" data-per=" / year"></td><td class="r muted" data-usd="18" data-per=" / year"></td></tr>
+            <tr><th scope="row">Custom AI module or integration</th><td class="r">Quoted per project</td><td class="r muted">—</td></tr>
           </tbody>
         </table>
       </div>
       <p>Payment: pilot 50% at signing and 50% at handover. License paid 12 months in advance.</p>
+      <p>Later, IT partners can install and support the system for us, under a revenue-sharing or referral agreement.</p>
     </div>
   </section>
 
@@ -473,6 +491,49 @@
     </div>
   </section>
 
+  <!-- 7b. Roadmap -->
+  <section>
+    <div class="wrap">
+      <h2>Roadmap (planned) <span class="tag">Projected</span></h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Year</th><th scope="col">Focus</th><th scope="col">Target</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Year 1</th><td>Finish the MVP, test on up to 10 PCs, run paid pilots at private schools</td><td>6 paid pilots, 3 paying schools, <span data-m="330"></span> revenue</td></tr>
+            <tr><th scope="row">Year 2</th><td>Turn pilots into yearly contracts; standardise setup, training and support; add document and report modules; work with IT service partners</td><td>8 customers, <span data-m="820"></span> revenue, renewal rate ≥ 80%</td></tr>
+            <tr><th scope="row">Year 3</th><td>More private schools and education-center chains; sell through IT partners</td><td>More customers, more yearly revenue, less setup and support time per customer</td></tr>
+            <tr><th scope="row">Year 4</th><td>Connect to schools' existing systems; study admin work at private clinics</td><td>A repeatable setup process; enter a new sector only after technical, security and demand checks</td></tr>
+            <tr><th scope="row">Year 5</th><td>One platform for many sites; better heat, power and performance reports; study small and medium businesses</td><td>Steady yearly revenue, growth through partners</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small muted">Targets are planning assumptions. We update them after each pilot.</p>
+    </div>
+  </section>
+
+  <!-- 7c. Risks -->
+  <section>
+    <div class="wrap">
+      <h2>Main risks and how we handle them</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Risk</th><th scope="col">What we do</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Old PCs too slow for AI</th><td>Check hardware and run test jobs before setup. Start with a pilot of up to 10 PCs.</td></tr>
+            <tr><th scope="row">PCs get too hot</th><td>Watch each PC's temperature and keep a heat limit. PCs predicted to get too hot get no new jobs.</td></tr>
+            <tr><th scope="row">Slowing down staff PCs</th><td>Background jobs run only in the hours IT sets (chat can run any time). IT can stop all new work with one button. Planned: pause when a staff member uses the PC.</td></tr>
+            <tr><th scope="row">Network drops</th><td>Workers that stop answering get no new jobs. The Host takes their job back.</td></tr>
+            <tr><th scope="row">Student or patient data leaks</th><td>Keep data inside the school network, limit access, keep logs.</td></tr>
+            <tr><th scope="row">AI makes mistakes</th><td>A person checks every result. No automatic decisions about people.</td></tr>
+            <tr><th scope="row">Schools will not pay</th><td>Paid pilots with clear goals. Show time saved before asking for a contract.</td></tr>
+            <tr><th scope="row">Revenue comes in late</th><td>Pilot paid in milestones. License paid 12 months ahead. Keep a cash reserve.</td></tr>
+            <tr><th scope="row">Small team, too many custom requests</th><td>Standard setup and docs, few custom changes, grow through IT partners.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <!-- 8. Calculator -->
   <section id="calculator">
     <div class="wrap">
@@ -560,6 +621,19 @@
           </tbody>
         </table>
       </div>
+      <div class="table-wrap" style="margin-top:32px">
+        <table>
+          <caption>What each pilot must show</caption>
+          <thead><tr><th scope="col">What we check</th><th scope="col">How we measure</th><th scope="col">Pass if</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Work done</th><td>Amount of data processed and time to finish</td><td>Agreed scope finished on time, on real sample data</td></tr>
+            <tr><th scope="row">Result quality</th><td>Compare with samples the school checked; count wrong and missed items</td><td>Users accept the results for the agreed use</td></tr>
+            <tr><th scope="row">Heat and effect on PCs</th><td>Temperature, errors, jobs left over, feedback from PC users</td><td>We stop if we cannot control the effect on daily work</td></tr>
+            <tr><th scope="row">Benefit for the school</th><td>Manual work time before and after, plus costs (electricity, IT time)</td><td>The school says the benefit is worth the full price</td></tr>
+            <tr><th scope="row">Will they buy</th><td>The budget owner answers the quote, signs and pays on milestones</td><td>Real payment, not only kind words</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
 </main>
@@ -567,7 +641,7 @@
 <footer>
   <div class="wrap">
     <p class="small muted">Numbers are projections from the Thermal Orchestrator business plan (2026). They are not audited results.</p>
-    <nav aria-label="Footer"><a href="/">Home</a><a href="/night-shift">Night demo</a></nav>
+    <nav aria-label="Footer"><a href="dashboard.html">Home</a><a href="night-shift.html">Night demo</a></nav>
   </div>
 </footer>
 

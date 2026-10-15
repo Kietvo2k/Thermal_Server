@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thermal Orchestrator — Business case</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&display=swap">
+<script>
+  // Set the theme before first paint. Same key as the dashboard, so the choice carries across pages.
+  (function () {
+    var t = null;
+    try { t = new URLSearchParams(location.search).get('theme'); } catch (e) {}
+    if (t !== 'dark' && t !== 'light') {
+      try { t = localStorage.getItem('thermal_dashboard_theme'); } catch (e) {}
+    }
+    document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light';
+  })();
+</script>
+<style>
+  :root {
+    color-scheme: light;
+    --bg:#f2f5f8; --surface:#ffffff; --surface-raised:#f7f9fb; --surface-sunken:#edf1f5;
+    --ink:#142032; --muted:#59687a; --line:#d5dde6; --primary:#075f75;
+    --good:#16734b; --warn:#9a5a08; --danger:#b22d37; --projected:#66558f; --focus:#156fce;
+    --on-primary:#ffffff;
+    /* Thermal ramp: only for temperature / night work, never decoration. */
+    --t-cool:#2a9db5; --t-mild:#6fb58a; --t-warm:#e0a33a; --t-hot:#d24b3e;
+    --font:"Be Vietnam Pro","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg:#0f1722; --surface:#172230; --surface-raised:#1c2939; --surface-sunken:#111b27;
+    --ink:#f2f6fa; --muted:#aab7c6; --line:#344354; --primary:#67c3d6;
+    --good:#70d0a1; --warn:#f1bd70; --danger:#ff929b; --projected:#c1aceb; --focus:#84bdff;
+    --on-primary:#08171c;
+  }
+  *, *::before, *::after { box-sizing:border-box; }
+  html, body { overflow-x:clip; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink); font-family:var(--font);
+    font-size:16px; line-height:1.55; -webkit-text-size-adjust:100%;
+  }
+  .num, td, th, .tabular { font-variant-numeric:tabular-nums; }
+  a { color:var(--primary); }
+  :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+  .wrap { max-width:1120px; margin:0 auto; padding:0 24px; }
+
+  /* Top bar */
+  .topbar { background:var(--surface); border-bottom:1px solid var(--line); }
+  .topbar .wrap { display:flex; align-items:center; gap:16px; min-height:64px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:16px; color:var(--ink); text-decoration:none; }
+  .brand-mark { width:30px; height:30px; color:var(--primary); flex:0 0 auto; }
+  .topnav { display:flex; gap:4px; margin-left:auto; }
+  .topnav a { display:inline-flex; align-items:center; min-height:44px; padding:0 12px; border-radius:8px; color:var(--ink); text-decoration:none; font-size:14px; }
+  .topnav a:hover { background:var(--surface-sunken); }
+  .topnav a[aria-current="page"] { font-weight:600; box-shadow:inset 0 -2px 0 var(--primary); border-radius:8px 8px 0 0; }
+  .btn, button {
+    font:inherit; font-size:14px; font-weight:600; min-height:44px; padding:0 16px; border-radius:8px;
+    display:inline-flex; align-items:center; gap:8px; cursor:pointer; text-decoration:none;
+    background:var(--primary); color:var(--on-primary); border:1px solid var(--primary);
+  }
+  .btn.ghost, button.ghost { background:var(--surface); color:var(--ink); border-color:var(--line); }
+  .btn.ghost:hover, button.ghost:hover { border-color:var(--muted); }
+  .theme-toggle svg { width:18px; height:18px; }
+
+  /* Sections */
+  main section { padding:64px 0; border-top:1px solid var(--line); }
+  main section.hero { border-top:0; padding-top:56px; }
+  h1, h2, h3 { line-height:1.2; margin:0 0 16px; letter-spacing:-0.01em; }
+  h1 { font-size:48px; font-weight:700; max-width:20ch; }
+  h2 { font-size:34px; font-weight:700; max-width:28ch; }
+  h3 { font-size:20px; font-weight:600; }
+  p { margin:0 0 16px; max-width:68ch; }
+  .lede { font-size:20px; color:var(--muted); max-width:58ch; }
+  .muted { color:var(--muted); }
+  .small { font-size:14px; }
+  .usd { color:var(--muted); font-size:.85em; font-weight:400; white-space:nowrap; margin-left:6px; }
+  .actions { display:flex; gap:12px; flex-wrap:wrap; margin:24px 0 40px; }
+
+  /* Hero 24-hour strip */
+  .strip { position:relative; }
+  .strip-draw { animation:draw 1.6s cubic-bezier(.3,.7,.2,1) .2s both; }
+  @keyframes draw { from { clip-path:inset(0 100% 0 0); } to { clip-path:inset(0 0 0 0); } }
+  .strip svg { display:block; width:100%; height:72px; border-radius:8px; }
+  .strip-labels { position:absolute; inset:0 0 auto 0; height:72px; pointer-events:none; }
+  .strip-labels span { position:absolute; top:50%; transform:translate(-50%,-50%); font-size:14px; font-weight:600; color:var(--ink); white-space:nowrap; }
+  .strip-key { display:none; }
+  .ticks { position:relative; height:24px; margin-top:6px; font-size:12px; color:var(--muted); }
+  .ticks span { position:absolute; transform:translateX(-50%); }
+  .ticks span:first-child { transform:none; }
+  .ticks span:last-child { transform:translateX(-100%); }
+  .facts { list-style:none; padding:0; margin:28px 0 0; display:flex; flex-wrap:wrap; gap:8px 32px; }
+  .facts li { padding-left:12px; border-left:3px solid var(--projected); }
+  .facts b { font-weight:600; }
+
+  /* Lists and tables */
+  .points { padding:0; margin:0; list-style:none; display:grid; gap:20px; max-width:68ch; }
+  .points b { display:block; font-size:20px; font-weight:600; }
+  .table-wrap { overflow-x:auto; margin:8px 0 16px; -webkit-overflow-scrolling:touch; }
+  table { border-collapse:collapse; width:100%; font-size:15px; }
+  caption { text-align:left; font-weight:600; font-size:16px; padding:0 0 8px; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  thead th { font-size:14px; color:var(--muted); font-weight:600; border-bottom-color:var(--muted); }
+  td.r, th.r { text-align:right; white-space:nowrap; }
+  tfoot td, tfoot th, tr.total td, tr.total th { font-weight:700; border-bottom:0; border-top:2px solid var(--ink); }
+  .table-wrap table { min-width:560px; }
+  .table-wrap.narrow table { min-width:0; }
+  .tag { display:inline-block; font-size:13px; font-weight:600; color:var(--projected); border:1px solid currentColor; border-radius:999px; padding:1px 10px; vertical-align:middle; }
+
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:40px; }
+  .modules ul { list-style:none; padding:0; margin:0; display:grid; gap:20px; }
+  .modules li strong { font-weight:600; display:block; }
+  .modules li span { display:block; }
+  .modules .limit { color:var(--muted); font-size:14px; }
+
+  /* Customer journey: a real sequence, so numbered */
+  .journey { list-style:none; padding:0; margin:24px 0; display:grid; grid-template-columns:repeat(5,1fr); gap:0; counter-reset:step; }
+  .journey li { position:relative; padding:44px 16px 0 0; counter-increment:step; }
+  .journey li::before {
+    content:counter(step); position:absolute; top:0; left:0; width:32px; height:32px; border-radius:50%;
+    display:grid; place-items:center; background:var(--primary); color:var(--on-primary); font-weight:700; font-size:15px; z-index:1;
+  }
+  .journey li::after { content:""; position:absolute; top:15px; left:32px; right:0; height:2px; background:var(--line); }
+  .journey li:last-child::after { display:none; }
+  .journey b { display:block; font-size:18px; font-weight:600; }
+  .journey .price { font-weight:600; margin-top:6px; display:block; }
+
+  /* Charts */
+  .chart { position:relative; margin:16px 0 8px; }
+  .chart svg { display:block; overflow:visible; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 20px; font-size:14px; color:var(--ink); margin:8px 0; padding:0; list-style:none; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
+  .legend i.line { height:3px; border-radius:2px; vertical-align:3px; width:18px; }
+  .legend i.dash { background:repeating-linear-gradient(90deg,var(--muted) 0 5px,transparent 5px 8px) !important; }
+  .axis text, .chart text { font-family:var(--font); font-size:12px; fill:var(--muted); }
+  .chart text.val { fill:var(--ink); font-weight:600; font-size:13px; }
+  .chart text.lab { fill:var(--ink); font-size:14px; }
+  .grid line { stroke:var(--line); stroke-width:1; }
+  .base { stroke:var(--muted); stroke-width:1; }
+  .f-rev { fill:var(--primary); } .f-cost { fill:var(--muted); } .f-profit { fill:var(--good); }
+  .f-ours { fill:var(--primary); } .f-other { fill:var(--muted); }
+  .s-ours { stroke:var(--primary); fill:none; stroke-width:2.5; }
+  .s-gpu { stroke:var(--muted); fill:none; stroke-width:2.5; stroke-dasharray:7 5; }
+  .s-cross { stroke:var(--muted); stroke-width:1; }
+  .bg-ours { background:var(--primary); } .bg-cost { background:var(--muted); } .bg-profit { background:var(--good); }
+  .tooltip {
+    position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--line); border-radius:8px;
+    padding:8px 10px; font-size:13px; line-height:1.4; box-shadow:0 6px 20px rgba(0,0,0,.12); white-space:nowrap; z-index:2;
+  }
+  .tooltip[hidden] { display:none; }
+
+  .two-tables { display:grid; grid-template-columns:1fr 1fr; gap:32px; }
+  .two-tables .table-wrap table { min-width:0; }
+  .badcase { border:2px solid var(--warn); border-radius:10px; padding:20px 24px; margin:32px 0; max-width:720px; }
+  .badcase h3 { color:var(--warn); }
+
+  /* Calculator */
+  .calc { display:grid; grid-template-columns:minmax(0,5fr) minmax(0,6fr); gap:40px; margin-top:24px; }
+  .field { margin-bottom:22px; }
+  .field label { display:block; font-weight:600; font-size:15px; }
+  .field .assume { display:block; font-size:13px; color:var(--projected); font-weight:400; }
+  .field output { display:block; font-weight:700; font-size:18px; margin:2px 0 4px; }
+  input[type=range] { width:100%; min-height:44px; accent-color:var(--primary); margin:0; }
+  .results { align-self:start; background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:20px 24px; }
+  .results h3 { font-size:16px; color:var(--muted); font-weight:600; margin:0 0 6px; }
+  .results .block + .block { border-top:1px solid var(--line); margin-top:16px; padding-top:16px; }
+  .vs { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .vs div { font-size:14px; color:var(--muted); }
+  .vs strong { display:block; font-size:26px; color:var(--ink); font-weight:700; line-height:1.2; }
+  .diff { font-weight:600; margin-top:8px; }
+  .diff.less { color:var(--good); } .diff.more { color:var(--danger); }
+
+  footer { border-top:1px solid var(--line); padding:32px 0 48px; background:var(--surface); }
+  footer nav { display:flex; gap:16px; margin-top:8px; }
+  footer nav a { min-height:44px; display:inline-flex; align-items:center; }
+
+  @media (max-width:860px) {
+    .two-col, .two-tables, .calc { grid-template-columns:1fr; }
+    .journey { grid-template-columns:1fr; }
+    .journey li { padding:0 0 24px 48px; min-height:56px; }
+    .journey li::after { top:32px; left:15px; right:auto; bottom:0; width:2px; height:auto; }
+  }
+  @media (max-width:900px) {
+    .strip-labels { display:none; }
+    .strip-key { display:flex; flex-wrap:wrap; gap:6px 16px; list-style:none; padding:0; margin:4px 0 0; font-size:14px; }
+    .strip-key i { display:inline-block; width:14px; height:14px; border-radius:3px; margin-right:6px; vertical-align:-2px; border:1px solid var(--line); }
+  }
+  @media (max-width:600px) {
+    .wrap { padding:0 16px; }
+    h1 { font-size:32px; }
+    h2 { font-size:26px; }
+    .lede { font-size:18px; }
+    main section { padding:48px 0; }
+    .topnav { margin-left:0; width:100%; order:3; }
+    .topbar .theme-toggle { margin-left:auto; }
+    .topnav a { padding:0 10px; }
+    .theme-text { display:none; }
+    .ticks .minor { display:none; }
+    td.r { white-space:normal; }
+    .vs strong { font-size:22px; }
+    .results { padding:16px; }
+  }
+  @media (prefers-reduced-motion:reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" fill="none">
+        <path d="M10 6a8 8 0 1 1-2.8 15.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M10 6v11.2a4 4 0 1 0 4.5 0V6a2.25 2.25 0 0 0-4.5 0Z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M19.5 12.5 24 16l-4.5 3.5M23.5 16h-8" stroke="#6ee7a8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Thermal Orchestrator</span>
+    </a>
+    <nav class="topnav" aria-label="Main">
+      <a href="/">Home</a>
+      <a href="/business" aria-current="page">Business case</a>
+      <a href="/night-shift">Night demo</a>
+    </nav>
+    <button class="ghost theme-toggle" type="button" aria-pressed="false" aria-label="Turn on dark mode">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4m0-12.8L17 7m-10 10-1.4 1.4M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span class="theme-text">Dark mode</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- 1. Hero -->
+  <section class="hero">
+    <div class="wrap">
+      <h1>Your school's computers sleep 13 hours a night. We put them to work.</h1>
+      <p class="lede">Thermal Orchestrator runs AI jobs on the PCs a school already owns, after the last class ends. It watches each machine's temperature, so jobs move away before a PC runs hot.</p>
+      <div class="actions">
+        <a class="btn" href="/night-shift">Watch a night run</a>
+        <a class="btn ghost" href="#calculator">Try the cost calculator</a>
+      </div>
+
+      <figure class="strip" style="margin:0" aria-label="A school day on a 24-hour clock. Classes from 07:00 to 17:30 use the PCs. From 17:30 to 06:30 the PCs are idle for 13 hours and run AI jobs. The morning report is ready from 06:30 to 07:00.">
+        <div class="strip-draw">
+          <svg id="strip" viewBox="0 0 1440 72" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="strip-labels" aria-hidden="true">
+            <span style="left:13.5%">AI jobs run here</span>
+            <span style="left:51.0%">Classes — PCs in use</span>
+            <span style="left:86.5%">13 idle hours — AI jobs run here</span>
+          </div>
+        </div>
+        <div class="ticks" id="ticks" aria-hidden="true"></div>
+        <ul class="strip-key" aria-hidden="true">
+          <li><i style="background:color-mix(in srgb,var(--t-warm) 40%,var(--surface))"></i>13 idle hours — AI jobs run here</li>
+          <li><i style="background:var(--surface-sunken)"></i>Classes — PCs in use</li>
+          <li><i style="background:var(--surface)"></i>06:30 morning report ready</li>
+        </ul>
+      </figure>
+
+      <ul class="facts">
+        <li>Projected profit in year 1 — <b>9.1% margin</b></li>
+        <li><b>18% projected margin</b> in year 2</li>
+        <li>Break-even at <b>290–300M VND</b><span class="usd">≈ $11.2k–11.5k</span> revenue a year (projected)</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 2. Problem -->
+  <section>
+    <div class="wrap">
+      <h2>Schools have the data and the computers, but not the AI server</h2>
+      <ul class="points">
+        <li><b>Data piles up every day.</b> Camera footage, attendance, grades and enrolment forms are mostly checked by hand.</li>
+        <li><b>A GPU server is expensive.</b> Around <span data-m="250"></span> up front (our assumption) before any AI work starts.</li>
+        <li><b>Data should stay inside.</b> Cloud AI means student data leaves the school network.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3. Who pays -->
+  <section>
+    <div class="wrap">
+      <h2>Who we sell to</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Customer</th><th scope="col">Good fit if</th><th scope="col">Why</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Private school <span class="muted small">(Phase 1)</span></th><td>500+ students, 20–30 cameras, 10+ PCs free after hours, an IT staff member</td><td>Daily data, clear reporting needs, simple pilot process</td></tr>
+            <tr><th scope="row">Education center <span class="muted small">(Phase 1)</span></th><td>Many classes, attendance, cameras and documents; quiet after hours</td><td>Easy small pilot, fast buying decision</td></tr>
+            <tr><th scope="row">Private hospital <span class="muted small">(Phase 2)</span></th><td>Cameras, admin records, a medicine store, an IT team</td><td>High privacy needs, able to pay</td></tr>
+            <tr><th scope="row">Polyclinic <span class="muted small">(Phase 2)</span></th><td>Many records, waiting times, supply store, no in-house AI</td><td>Clear admin problems; AI kept to admin work</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Phase 2 starts only after the school pilots prove the results.</p>
+    </div>
+  </section>
+
+  <!-- 4. AI modules -->
+  <section>
+    <div class="wrap">
+      <h2>What runs at night</h2>
+      <div class="two-col modules">
+        <div>
+          <h3>For schools</h3>
+          <ul>
+            <li><strong>Camera review</strong><span>Flags crowded areas, people in restricted zones, left objects and unusual events.</span><span class="limit">Safety limit: never decides a student broke a rule; a person checks the original video.</span></li>
+            <li><strong>Attendance alerts</strong><span>Counts absences, spots unusual changes, lists students for the form teacher to check.</span><span class="limit">Safety limit: never guesses the reason or disciplines anyone.</span></li>
+            <li><strong>Learning analysis</strong><span>Compares results by class and subject, suggests groups that need help.</span><span class="limit">Safety limit: never grades conduct or makes big decisions.</span></li>
+            <li><strong>Form reading</strong><span>Reads enrolment forms, finds missing fields, sorts documents.</span><span class="limit">Safety limit: staff confirm the data first.</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3>For clinics</h3>
+          <ul>
+            <li><strong>Visitor flow</strong><span>Counts people in public areas, finds peak hours, estimates waiting time.</span><span class="limit">Safety limit: never identifies patients.</span></li>
+            <li><strong>Admin records</strong><span>Sorts records, pulls out fields, flags missing information.</span><span class="limit">Safety limit: staff confirm before use.</span></li>
+            <li><strong>Medicine and supplies</strong><span>Warns about items near expiry, fast drops in stock, and coming shortages.</span><span class="limit">Safety limit: never orders or changes stock by itself.</span></li>
+            <li><strong>Daily report</strong><span>Sums up check-ins, waiting time, records and events.</span><span class="limit">Safety limit: never diagnoses or suggests treatment.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. Prices -->
+  <section>
+    <div class="wrap">
+      <h2>Price list</h2>
+      <div class="table-wrap narrow">
+        <table style="max-width:720px">
+          <thead><tr><th scope="col">Item</th><th scope="col" class="r">Price (VND)</th><th scope="col" class="r">≈ USD</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">System survey</th><td class="r" data-vnd="5-10"></td><td class="r muted" data-usd="5-10"></td></tr>
+            <tr><th scope="row">Paid pilot, 4–6 weeks</th><td class="r" data-vnd="20"></td><td class="r muted" data-usd="20"></td></tr>
+            <tr><th scope="row">Setup</th><td class="r" data-vnd="25"></td><td class="r muted" data-usd="25"></td></tr>
+            <tr><th scope="row">License, up to 10 PCs</th><td class="r" data-vnd="72" data-per=" / year"></td><td class="r muted" data-usd="72" data-per=" / year"></td></tr>
+            <tr><th scope="row">One standard AI module</th><td class="r" data-vnd="18" data-per=" / year"></td><td class="r muted" data-usd="18" data-per=" / year"></td></tr>
+            <tr><th scope="row">Add 10 more PCs</th><td class="r" data-vnd="36" data-per=" / year"></td><td class="r muted" data-usd="36" data-per=" / year"></td></tr>
+            <tr><th scope="row">Extra training</th><td class="r" data-vnd="5" data-per=" / session"></td><td class="r muted" data-usd="5" data-per=" / session"></td></tr>
+            <tr><th scope="row">Priority support</th><td class="r" data-vnd="18" data-per=" / year"></td><td class="r muted" data-usd="18" data-per=" / year"></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Payment: pilot 50% at signing and 50% at handover. License paid 12 months in advance.</p>
+    </div>
+  </section>
+
+  <!-- 6. Customer journey -->
+  <section>
+    <div class="wrap">
+      <h2>How one school becomes a customer</h2>
+      <ol class="journey">
+        <li><b>Survey</b>Check PCs, network, cameras, data, privacy.<span class="price" data-m="5-10"></span></li>
+        <li><b>Paid pilot</b>4–6 weeks, max 10 PCs, one module, one department.<span class="price" data-m="20"></span></li>
+        <li><b>Setup</b>Install, train IT, hand over.<span class="price" data-m="25"></span></li>
+        <li><b>Yearly license</b>License for up to 10 PCs, plus each AI module.<span class="price"><span data-m="72"></span> + 18M per module</span></li>
+        <li><b>Grow</b>More PCs, more modules, support.<span class="price">+<span data-m="36"></span> per 10 PCs</span></li>
+      </ol>
+      <p>A paid pilot proves the school really needs it and can pay for it.</p>
+    </div>
+  </section>
+
+  <!-- 7. Financials -->
+  <section>
+    <div class="wrap">
+      <h2>The numbers (projected)</h2>
+      <p>These are planning assumptions from our business plan. We update them after every pilot with real data.</p>
+
+      <h3>Revenue, cost and profit before tax <span class="tag">Projected</span></h3>
+      <ul class="legend" aria-hidden="true">
+        <li><i class="bg-ours"></i>Revenue</li><li><i class="bg-cost"></i>Cost</li><li><i class="bg-profit"></i>Profit before tax</li>
+      </ul>
+      <div class="chart" id="chartA" role="img" aria-label="Projected. Year 1: revenue 330M VND, cost 300M VND, profit before tax 30M VND. Year 2: revenue 820M VND, cost 672.5M VND, profit before tax 147.5M VND."></div>
+      <div class="table-wrap narrow">
+        <table style="max-width:560px">
+          <caption>Same numbers as the chart (projected)</caption>
+          <thead><tr><th scope="col"></th><th scope="col" class="r">Year 1</th><th scope="col" class="r">Year 2</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Revenue</th><td class="r" data-m="330"></td><td class="r" data-m="820"></td></tr>
+            <tr><th scope="row">Cost</th><td class="r" data-m="300"></td><td class="r" data-m="672.5"></td></tr>
+            <tr><th scope="row">Profit before tax</th><td class="r" data-m="30"></td><td class="r" data-m="147.5"></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="two-tables" style="margin-top:32px">
+        <div class="table-wrap">
+          <table>
+            <caption>Year 1 revenue (projected)</caption>
+            <tbody>
+              <tr><th scope="row">Paid pilots, 6 × 20M</th><td class="r" data-m="120"></td></tr>
+              <tr><th scope="row">Setup fees, 3 × 25M</th><td class="r" data-m="75"></td></tr>
+              <tr><th scope="row">Licenses, 3 × 6 months × 6M</th><td class="r" data-m="108"></td></tr>
+              <tr><th scope="row">AI modules, 3 × 6 months × 1.5M</th><td class="r" data-m="27"></td></tr>
+              <tr class="total"><th scope="row">Total</th><td class="r" data-m="330"></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption>Year 2 revenue (projected)</caption>
+            <tbody>
+              <tr><th scope="row">10 paid pilots</th><td class="r" data-m="200"></td></tr>
+              <tr><th scope="row">Setup for 5 new customers</th><td class="r" data-m="125"></td></tr>
+              <tr><th scope="row">Renewals from 3 customers</th><td class="r" data-m="216"></td></tr>
+              <tr><th scope="row">Licenses for new customers</th><td class="r" data-m="180"></td></tr>
+              <tr><th scope="row">AI modules</th><td class="r" data-m="99"></td></tr>
+              <tr class="total"><th scope="row">Total</th><td class="r" data-m="820"></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="margin-top:32px">
+        <table>
+          <caption>Costs (projected)</caption>
+          <thead><tr><th scope="col">Cost</th><th scope="col" class="r">Year 1</th><th scope="col" class="r">Year 2</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Direct cost (pilot, setup, support)</th><td class="r" data-m="84"></td><td class="r" data-m="224.5"></td></tr>
+            <tr><th scope="row">Product development</th><td class="r" data-m="60"></td><td class="r" data-m="120"></td></tr>
+            <tr><th scope="row">Sales, travel, demos</th><td class="r" data-m="36"></td><td class="r" data-m="70"></td></tr>
+            <tr><th scope="row">Security and legal <span class="muted small">(year 1: security, legal and contracts; year 2: security, legal and testing)</span></th><td class="r" data-m="24"></td><td class="r" data-m="60"></td></tr>
+            <tr><th scope="row">Accounting and admin</th><td class="r" data-m="18"></td><td class="r" data-m="24"></td></tr>
+            <tr><th scope="row">Team allowance</th><td class="r" data-m="60"></td><td class="r" data-m="144"></td></tr>
+            <tr><th scope="row">Reserve</th><td class="r" data-m="18"></td><td class="r" data-m="30"></td></tr>
+            <tr class="total"><th scope="row">Total</th><td class="r" data-m="300"></td><td class="r" data-m="672.5"></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>6 paid pilots → 3 customers in year 1. 10 pilots → 5 new + 3 renewals = 8 customers at the end of year 2. Pilot-to-contract rate assumed at 50%.</p>
+
+      <div class="table-wrap" style="margin-top:24px">
+        <table>
+          <caption>Cash flow (projected)</caption>
+          <thead><tr><th scope="col"></th><th scope="col" class="r">Year 1</th><th scope="col" class="r">Year 2</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Cash at start</th><td class="r" data-m="80"></td><td class="r" data-m="110"></td></tr>
+            <tr><th scope="row">Cash in</th><td class="r" data-m="330"></td><td class="r" data-m="820"></td></tr>
+            <tr><th scope="row">Cash out</th><td class="r" data-m="300"></td><td class="r" data-m="672.5"></td></tr>
+            <tr><th scope="row">Net cash flow</th><td class="r" data-m="30"></td><td class="r" data-m="147.5"></td></tr>
+            <tr class="total"><th scope="row">Cash at end</th><td class="r" data-m="110"></td><td class="r" data-m="257.5"></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <aside class="badcase" aria-labelledby="badTitle">
+        <h3 id="badTitle">If year 1 goes badly</h3>
+        <p>Only 4 paid pilots and 2 contracts: revenue 220M, cost 272M, a loss of 52M. We start with 80M, so 28M is left at year end — the project survives the year.</p>
+        <div class="table-wrap narrow">
+          <table>
+            <caption class="muted small">Bad case, year 1 (projected)</caption>
+            <tbody>
+              <tr><th scope="row">Revenue</th><td class="r" data-m="220"></td></tr>
+              <tr><th scope="row">Cost</th><td class="r" data-m="272"></td></tr>
+              <tr><th scope="row">Loss</th><td class="r">−<span data-m="52"></span></td></tr>
+              <tr><th scope="row">Cash at start</th><td class="r" data-m="80"></td></tr>
+              <tr class="total"><th scope="row">Cash at year end</th><td class="r" data-m="28"></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </aside>
+
+      <h3>Profit margin before tax, compared</h3>
+      <div class="chart" id="chartB" role="img" aria-label="Profit margin before tax: CMC plan 2025 5.6%. Thermal Orchestrator year 1 9.1% (projected). Thermal Orchestrator year 2 18.0% (projected). FPT 2025 18.6%."></div>
+      <p class="small muted">Sources:
+        <a href="https://bctn2025.fpt.com/en/business-performance-analysis/overall-evaluation/" target="_blank" rel="noopener">FPT annual report 2025</a>,
+        <a href="https://cdn.cmc.com.vn/img/posts/files/20250718%20-%20CMG%20-%20Annual%20report%202024%20-%20signed.pdf" target="_blank" rel="noopener">CMC annual report 2024 (2025 plan)</a>.
+        Our two bars are projections.</p>
+      <p>Year 2 at 18% is only realistic once setup and support are standardised.</p>
+    </div>
+  </section>
+
+  <!-- 8. Calculator -->
+  <section id="calculator">
+    <div class="wrap">
+      <h2>Compare: our license vs buying a GPU server</h2>
+      <p>Move the sliders for your school. Both options still need the same AI modules and the same setup.</p>
+      <div class="calc">
+        <form id="calcForm" onsubmit="return false">
+          <div class="field">
+            <label for="inPcs">PCs taking part</label>
+            <output id="outPcs" for="inPcs"></output>
+            <input type="range" id="inPcs" min="10" max="50" step="10" value="10">
+          </div>
+          <div class="field">
+            <label for="inMods">AI modules</label>
+            <output id="outMods" for="inMods"></output>
+            <input type="range" id="inMods" min="1" max="4" step="1" value="1">
+          </div>
+          <div class="field">
+            <label for="inGpu">GPU server price <span class="assume">(our assumption, not from the business plan — you can change it)</span></label>
+            <output id="outGpu" for="inGpu"></output>
+            <input type="range" id="inGpu" min="100" max="500" step="10" value="250">
+          </div>
+          <div class="field">
+            <label for="inHours">Staff hours saved per module each month <span class="assume">(our assumption, not from the business plan — you can change it)</span></label>
+            <output id="outHours" for="inHours"></output>
+            <input type="range" id="inHours" min="10" max="80" step="5" value="40">
+          </div>
+          <div class="field">
+            <label for="inWage">Staff wage <span class="assume">(our assumption, not from the business plan — you can change it)</span></label>
+            <output id="outWage" for="inWage"></output>
+            <input type="range" id="inWage" min="30000" max="150000" step="5000" value="60000">
+          </div>
+        </form>
+        <div class="results" aria-live="polite">
+          <div class="block">
+            <h3>Cash needed in year 1 <span class="tag">Projected</span></h3>
+            <div class="vs">
+              <div>Our license<strong id="th1" class="num"></strong><span id="th1u" class="usd" style="margin:0"></span></div>
+              <div>GPU server<strong id="gp1" class="num"></strong><span id="gp1u" class="usd" style="margin:0"></span></div>
+            </div>
+            <div class="diff" id="diff1"></div>
+          </div>
+          <div class="block">
+            <h3>Total after 3 years</h3>
+            <div class="vs">
+              <div>Our license<strong id="th3" class="num"></strong><span id="th3u" class="usd" style="margin:0"></span></div>
+              <div>GPU server<strong id="gp3" class="num"></strong><span id="gp3u" class="usd" style="margin:0"></span></div>
+            </div>
+            <div class="diff" id="diff3"></div>
+          </div>
+          <div class="block">
+            <h3>Staff time saved</h3>
+            <p id="saved" style="margin:0"></p>
+          </div>
+        </div>
+      </div>
+
+      <h3 style="margin-top:40px">Total cost over 36 months</h3>
+      <ul class="legend" aria-hidden="true">
+        <li><i class="line bg-ours"></i>Our license (solid line)</li>
+        <li><i class="line dash"></i>GPU server (dashed line)</li>
+      </ul>
+      <div class="chart" id="chartC" role="img" aria-label=""></div>
+      <p class="small muted">The GPU price, hours saved and wage are our assumptions, not figures from the business plan. Electricity, maintenance and replacement costs are not included for either option.</p>
+    </div>
+  </section>
+
+  <!-- 9. What we track -->
+  <section>
+    <div class="wrap">
+      <h2>How we will know it works</h2>
+      <div class="table-wrap narrow">
+        <table style="max-width:720px">
+          <thead><tr><th scope="col">Metric</th><th scope="col">Target</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Pilot to contract</th><td>≥ 40%</td></tr>
+            <tr><th scope="row">Gross margin</th><td>65–75%</td></tr>
+            <tr><th scope="row">Profit margin year 1</th><td>5–10%</td></tr>
+            <tr><th scope="row">Profit margin year 2</th><td>15–18%</td></tr>
+            <tr><th scope="row">Renewal rate</th><td>≥ 80%</td></tr>
+            <tr><th scope="row">Setup time</th><td>Under 10 working days</td></tr>
+            <tr><th scope="row">Cost to win one customer</th><td>Under 25M VND <span class="usd">≈ $962</span></td></tr>
+            <tr><th scope="row">IT support per customer</th><td>Under 4 hours a month</td></tr>
+            <tr><th scope="row">Serious security incidents</th><td>0</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="small muted">Numbers are projections from the Thermal Orchestrator business plan (2026). They are not audited results.</p>
+    <nav aria-label="Footer"><a href="/">Home</a><a href="/night-shift">Night demo</a></nav>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var THEME_KEY = 'thermal_dashboard_theme';
+  var RATE = 26000; // VND per USD
+  var SVGNS = 'http://www.w3.org/2000/svg';
+
+  // ---------- Money format helpers (input is millions of VND) ----------
+  function trim1(x) { var r = Math.round(x * 10) / 10; return r % 1 === 0 ? String(r) : r.toFixed(1); }
+  function vnd(m) {
+    // Non-breaking space keeps "330M VND" on one line.
+    if (Math.abs(m) < 1) return Math.round(m * 1e6).toLocaleString('en-US') + '\u00a0VND';
+    return trim1(m) + 'M\u00a0VND';
+  }
+  function usdNum(m) {
+    var d = m * 1e6 / RATE;
+    return Math.abs(d) >= 1000 ? '$' + (d / 1000).toFixed(1) + 'k' : '$' + Math.round(d);
+  }
+  function usd(m) { return '≈ ' + usdNum(m); }
+  function rangeParts(s) { return String(s).split('-').map(Number); }
+  function vndRange(s) {
+    var p = rangeParts(s);
+    return p.length === 2 ? trim1(p[0]) + '–' + trim1(p[1]) + 'M\u00a0VND' : vnd(p[0]);
+  }
+  function usdRange(s) {
+    var p = rangeParts(s);
+    return p.length === 2 ? '≈ ' + usdNum(p[0]) + '–' + usdNum(p[1]).slice(1) : usd(p[0]);
+  }
+
+  // Fill money cells written as data attributes in the HTML.
+  document.querySelectorAll('[data-m]').forEach(function (el) {
+    var per = el.dataset.per || '';
+    el.textContent = vndRange(el.dataset.m) + per;
+    var u = document.createElement('span');
+    u.className = 'usd';
+    u.textContent = usdRange(el.dataset.m);
+    el.appendChild(u);
+  });
+  document.querySelectorAll('[data-vnd]').forEach(function (el) { el.textContent = vndRange(el.dataset.vnd) + (el.dataset.per || ''); });
+  document.querySelectorAll('[data-usd]').forEach(function (el) { el.textContent = usdRange(el.dataset.usd) + (el.dataset.per || ''); });
+
+  // ---------- Theme ----------
+  function applyTheme(t) {
+    var dark = t === 'dark';
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.querySelectorAll('.theme-toggle').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(dark));
+      b.setAttribute('aria-label', dark ? 'Turn on light mode' : 'Turn on dark mode');
+      var s = b.querySelector('.theme-text');
+      if (s) s.textContent = dark ? 'Light mode' : 'Dark mode';
+    });
+  }
+  applyTheme(document.documentElement.dataset.theme);
+  document.querySelectorAll('.theme-toggle').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
+      applyTheme(t);
+    });
+  });
+
+  // ---------- SVG helper ----------
+  function el(tag, attrs, parent, text) {
+    var n = document.createElementNS(SVGNS, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  // A bar with rounded data end (top) and a square base.
+  function barPath(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h);
+    return 'M' + x + ',' + (y + h) + 'V' + (y + r) + 'Q' + x + ',' + y + ' ' + (x + r) + ',' + y +
+      'H' + (x + w - r) + 'Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + r) + 'V' + (y + h) + 'Z';
+  }
+  // A horizontal bar with rounded right end.
+  function hbarPath(x, y, w, h, r) {
+    r = Math.min(r, h / 2, w);
+    return 'M' + x + ',' + y + 'H' + (x + w - r) + 'Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + r) +
+      'V' + (y + h - r) + 'Q' + (x + w) + ',' + (y + h) + ' ' + (x + w - r) + ',' + (y + h) + 'H' + x + 'Z';
+  }
+
+  // ---------- Hero 24-hour strip ----------
+  (function () {
+    var s = document.getElementById('strip');
+    var W = 1440, H = 72, px = function (h) { return h / 24 * W; };
+    var defs = el('defs', {}, s);
+    // Night 1 (00:00-06:30): warm late evening jobs cool down by morning.
+    var g1 = el('linearGradient', { id: 'gMorning', x1: 0, x2: 1, y1: 0, y2: 0 }, defs);
+    el('stop', { offset: '0', style: 'stop-color:var(--t-warm)' }, g1);
+    el('stop', { offset: '.6', style: 'stop-color:var(--t-mild)' }, g1);
+    el('stop', { offset: '1', style: 'stop-color:var(--t-cool)' }, g1);
+    // Night 2 (17:30-24:00): PCs warm up as the jobs start.
+    var g2 = el('linearGradient', { id: 'gEvening', x1: 0, x2: 1, y1: 0, y2: 0 }, defs);
+    el('stop', { offset: '0', style: 'stop-color:var(--t-cool)' }, g2);
+    el('stop', { offset: '.45', style: 'stop-color:var(--t-mild)' }, g2);
+    el('stop', { offset: '1', style: 'stop-color:var(--t-warm)' }, g2);
+    el('rect', { x: 0, y: 0, width: W, height: H, style: 'fill:var(--surface)' }, s);
+    el('rect', { x: 0, y: 0, width: px(6.5), height: H, fill: 'url(#gMorning)', 'fill-opacity': .42 }, s);
+    el('rect', { x: px(7), y: 0, width: px(10.5), height: H, style: 'fill:var(--surface-sunken)' }, s);
+    el('rect', { x: px(17.5), y: 0, width: W - px(17.5), height: H, fill: 'url(#gEvening)', 'fill-opacity': .42 }, s);
+    // Small hatch marks for the 06:30-07:00 "morning report" gap.
+    el('rect', { x: px(6.5), y: 0, width: px(.5), height: H, style: 'fill:var(--surface);stroke:var(--line)' }, s);
+    for (var h = 3; h < 24; h += 3) el('line', { x1: px(h), x2: px(h), y1: H - 10, y2: H, style: 'stroke:var(--muted);stroke-width:1.5' }, s);
+
+    var t = document.getElementById('ticks');
+    for (var hh = 0; hh <= 24; hh += 3) {
+      var sp = document.createElement('span');
+      sp.style.left = (hh / 24 * 100) + '%';
+      sp.textContent = (hh < 10 ? '0' : '') + hh + ':00';
+      if (hh % 6) sp.className = 'minor'; // hidden on phones so labels do not touch
+      t.appendChild(sp);
+    }
+  })();
+
+  // Width-based charts redraw when their box changes size.
+  function onResize(node, fn) {
+    var last = 0;
+    var run = function () { var w = node.clientWidth; if (w && w !== last) { last = w; fn(w); } };
+    if ('ResizeObserver' in window) new ResizeObserver(run).observe(node);
+    else window.addEventListener('resize', run);
+    run();
+  }
+
+  // ---------- Chart A: grouped bars ----------
+  var A = document.getElementById('chartA');
+  onResize(A, function (W) {
+    A.innerHTML = '';
+    W = Math.min(W, 720);
+    var H = 280, m = { t: 24, r: 8, b: 32, l: 52 };
+    var pw = W - m.l - m.r, ph = H - m.t - m.b, max = 900;
+    var svg = el('svg', { width: W, height: H, 'aria-hidden': 'true' }, A);
+    var y = function (v) { return m.t + ph - v / max * ph; };
+    var grid = el('g', { class: 'grid' }, svg);
+    for (var v = 200; v <= 800; v += 200) {
+      el('line', { x1: m.l, x2: m.l + pw, y1: y(v), y2: y(v) }, grid);
+      el('text', { x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, svg, v + 'M');
+    }
+    var data = [
+      { label: 'Year 1', vals: [330, 300, 30] },
+      { label: 'Year 2', vals: [820, 672.5, 147.5] }
+    ];
+    var names = ['Revenue', 'Cost', 'Profit before tax'], cls = ['f-rev', 'f-cost', 'f-profit'];
+    // Narrow screens: wider bars, smaller labels without the "M" (the axis shows M).
+    var narrow = W < 480, pad = narrow ? 12 : 40;
+    var gw = pw / 2, bw = Math.min(64, (gw - pad) / 3 - 2), gap = 2;
+    data.forEach(function (d, i) {
+      var x0 = m.l + gw * i + (gw - (bw * 3 + gap * 2)) / 2;
+      d.vals.forEach(function (val, j) {
+        var x = x0 + j * (bw + gap), top = y(val);
+        var p = el('path', { d: barPath(x, top, bw, y(0) - top, 4), class: cls[j] }, svg);
+        el('title', {}, p, d.label + ' ' + names[j] + ': ' + vnd(val) + ' (projected)');
+        var t = el('text', { x: x + bw / 2, y: top - 6, 'text-anchor': 'middle', class: 'val' }, svg, trim1(val) + (narrow ? '' : 'M'));
+        if (narrow) t.style.fontSize = '11px';
+      });
+      el('text', { x: m.l + gw * i + gw / 2, y: H - 8, 'text-anchor': 'middle', class: 'lab' }, svg, d.label);
+    });
+    el('line', { x1: m.l, x2: m.l + pw, y1: y(0), y2: y(0), class: 'base' }, svg);
+  });
+
+  // ---------- Chart B: margin comparison, horizontal bars ----------
+  var B = document.getElementById('chartB');
+  onResize(B, function (W) {
+    B.innerHTML = '';
+    W = Math.min(W, 720);
+    var rows = [
+      { label: 'CMC plan 2025', v: 5.6, ours: false },
+      { label: 'Thermal Orchestrator year 1 (projected)', v: 9.1, ours: true },
+      { label: 'Thermal Orchestrator year 2 (projected)', v: 18.0, ours: true },
+      { label: 'FPT 2025', v: 18.6, ours: false }
+    ];
+    var rowH = 58, barH = 18, padR = 56, max = 20;
+    var H = rows.length * rowH + 4;
+    var svg = el('svg', { width: W, height: H, 'aria-hidden': 'true' }, B);
+    var pw = W - padR;
+    rows.forEach(function (r, i) {
+      var y0 = i * rowH;
+      el('text', { x: 0, y: y0 + 16, class: 'lab' }, svg, r.label);
+      var w = r.v / max * pw;
+      var p = el('path', { d: hbarPath(0, y0 + 24, w, barH, 4), class: r.ours ? 'f-ours' : 'f-other' }, svg);
+      el('title', {}, p, r.label + ': ' + r.v.toFixed(1) + '%');
+      el('text', { x: w + 8, y: y0 + 24 + barH - 4, class: 'val' }, svg, r.v.toFixed(1) + '%');
+    });
+    el('line', { x1: 0, x2: 0, y1: 20, y2: H, class: 'base' }, svg);
+  });
+
+  // ---------- Cost calculator ----------
+  var $ = function (id) { return document.getElementById(id); };
+  var C = $('chartC');
+  var tip = document.createElement('div');
+  tip.className = 'tooltip'; tip.hidden = true;
+
+  function model() {
+    var pcs = +$('inPcs').value, mods = +$('inMods').value, gpu = +$('inGpu').value;
+    var hours = +$('inHours').value, wage = +$('inWage').value;
+    var licenseYear = 72 + 36 * (pcs / 10 - 1), moduleYear = 18 * mods, setup = 25;
+    var th = [], gp = [];
+    for (var mo = 1; mo <= 36; mo++) {
+      var yrs = Math.ceil(mo / 12);
+      th.push(setup + (licenseYear + moduleYear) * yrs);
+      gp.push(gpu + setup + moduleYear * yrs);
+    }
+    var hoursMonth = mods * hours;
+    return { pcs: pcs, mods: mods, gpu: gpu, hours: hours, wage: wage, th: th, gp: gp,
+      hoursMonth: hoursMonth, valueMonth: hoursMonth * wage / 1e6 };
+  }
+
+  function diffText(node, gpuVal, thVal, when) {
+    var d = gpuVal - thVal;
+    node.className = 'diff ' + (d >= 0 ? 'less' : 'more');
+    node.textContent = 'Our license: ' + vnd(Math.abs(d)) + ' ' + (d >= 0 ? 'less' : 'more') + ' ' + when + ' (' + usd(Math.abs(d)) + ')';
+  }
+
+  function drawC(W, d) {
+    C.innerHTML = '';
+    C.appendChild(tip);
+    var H = 280, m = { t: 16, r: 104, b: 36, l: 56 };
+    if (W < 480) m.r = 84;
+    var pw = W - m.l - m.r, ph = H - m.t - m.b;
+    var top = Math.max(d.th[35], d.gp[35]);
+    var step = top > 600 ? 200 : 100;
+    var max = Math.ceil(top / step) * step;
+    var x = function (mo) { return m.l + mo / 36 * pw; };
+    var y = function (v) { return m.t + ph - v / max * ph; };
+    var svg = el('svg', { width: W, height: H, 'aria-hidden': 'true' }, C);
+    var grid = el('g', { class: 'grid' }, svg);
+    for (var v = step; v <= max; v += step) {
+      el('line', { x1: m.l, x2: m.l + pw, y1: y(v), y2: y(v) }, grid);
+      el('text', { x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, svg, v + 'M');
+    }
+    [0, 12, 24, 36].forEach(function (mo) {
+      el('text', { x: x(mo), y: H - 12, 'text-anchor': mo === 0 ? 'start' : 'middle' }, svg, mo === 0 ? 'Start' : 'Month ' + mo);
+    });
+    el('line', { x1: m.l, x2: m.l + pw, y1: y(0), y2: y(0), class: 'base' }, svg);
+    // Step line: the yearly cost is paid at the start of each year.
+    function stepPath(arr) {
+      var p = 'M' + x(0) + ',' + y(arr[0]);
+      for (var i = 0; i < 36; i++) {
+        if (i > 0 && arr[i] !== arr[i - 1]) p += 'V' + y(arr[i]);
+        p += 'H' + x(i + 1);
+      }
+      return p;
+    }
+    el('path', { d: stepPath(d.gp), class: 's-gpu' }, svg);
+    el('path', { d: stepPath(d.th), class: 's-ours' }, svg);
+    // Direct end labels, pushed apart if they would overlap.
+    var yT = y(d.th[35]), yG = y(d.gp[35]);
+    if (Math.abs(yT - yG) < 36) {
+      var mid = (yT + yG) / 2, up = yT <= yG ? -1 : 1;
+      yT = mid + up * 18; yG = mid - up * 18;
+    }
+    el('text', { x: x(36) + 8, y: yT - 2, class: 'val' }, svg, 'Our license');
+    el('text', { x: x(36) + 8, y: yT + 13 }, svg, trim1(d.th[35]) + 'M VND');
+    el('text', { x: x(36) + 8, y: yG - 2, class: 'val' }, svg, 'GPU server');
+    el('text', { x: x(36) + 8, y: yG + 13 }, svg, trim1(d.gp[35]) + 'M VND');
+
+    // Hover: crosshair + tooltip for one month.
+    var cross = el('line', { y1: m.t, y2: m.t + ph, class: 's-cross', visibility: 'hidden' }, svg);
+    var hit = el('rect', { x: m.l, y: m.t, width: pw, height: ph, fill: 'transparent' }, svg);
+    hit.addEventListener('pointermove', function (e) {
+      var r = svg.getBoundingClientRect();
+      var mo = Math.min(36, Math.max(1, Math.ceil((e.clientX - r.left - m.l) / pw * 36)));
+      var cx = x(mo - 0.5);
+      cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+      tip.hidden = false;
+      tip.innerHTML = '';
+      var lines = ['Month ' + mo, 'Our license: ' + vnd(d.th[mo - 1]), 'GPU server: ' + vnd(d.gp[mo - 1])];
+      lines.forEach(function (t, i) { var b = document.createElement(i ? 'div' : 'strong'); b.textContent = t; tip.appendChild(b); });
+      var left = cx + 12;
+      if (left + 190 > W) left = cx - 190;
+      tip.style.left = left + 'px';
+      tip.style.top = (m.t + 4) + 'px';
+    });
+    hit.addEventListener('pointerleave', function () { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); });
+    C.setAttribute('aria-label', 'Total cost over 36 months. Our license: ' + vnd(d.th[11]) + ' after year 1, ' + vnd(d.th[35]) +
+      ' after 3 years. GPU server: ' + vnd(d.gp[11]) + ' after year 1, ' + vnd(d.gp[35]) + ' after 3 years.');
+  }
+
+  function setMoney(node, main, u) {
+    node.textContent = main;
+    var s = document.createElement('span'); s.className = 'usd'; s.textContent = u; node.appendChild(s);
+  }
+  var lastW = 0, cur = null;
+  function update() {
+    var d = cur = model();
+    $('outPcs').textContent = d.pcs + ' PCs';
+    $('outMods').textContent = d.mods + (d.mods === 1 ? ' module' : ' modules');
+    setMoney($('outGpu'), vnd(d.gpu), usd(d.gpu));
+    $('outHours').textContent = d.hours + ' hours';
+    setMoney($('outWage'), d.wage.toLocaleString('en-US') + ' VND per hour', usd(d.wage / 1e6));
+    $('th1').textContent = vnd(d.th[11]); $('th1u').textContent = usd(d.th[11]);
+    $('gp1').textContent = vnd(d.gp[11]); $('gp1u').textContent = usd(d.gp[11]);
+    $('th3').textContent = vnd(d.th[35]); $('th3u').textContent = usd(d.th[35]);
+    $('gp3').textContent = vnd(d.gp[35]); $('gp3u').textContent = usd(d.gp[35]);
+    diffText($('diff1'), d.gp[11], d.th[11], 'up front');
+    diffText($('diff3'), d.gp[35], d.th[35], 'over 3 years');
+    $('saved').textContent = d.hoursMonth + ' hours a month, worth about ' + vnd(d.valueMonth) + ' (' + usd(d.valueMonth) + ') a month';
+    if (lastW) drawC(lastW, d);
+  }
+  ['inPcs', 'inMods', 'inGpu', 'inHours', 'inWage'].forEach(function (id) { $(id).addEventListener('input', update); });
+  update();
+  onResize(C, function (W) { lastW = W; drawC(W, cur); });
+})();
+</script>
+</body>
+</html>

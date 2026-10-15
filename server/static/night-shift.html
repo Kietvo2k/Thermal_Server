@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thermal Orchestrator — Night demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&display=swap">
+<script>
+  // Set the theme before first paint. Same key as the dashboard, so the choice carries across pages.
+  (function () {
+    var t = null;
+    try { t = new URLSearchParams(location.search).get('theme'); } catch (e) {}
+    if (t !== 'dark' && t !== 'light') {
+      try { t = localStorage.getItem('thermal_dashboard_theme'); } catch (e) {}
+    }
+    document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light';
+  })();
+</script>
+<style>
+  :root {
+    color-scheme: light;
+    --bg:#f2f5f8; --surface:#ffffff; --surface-raised:#f7f9fb; --surface-sunken:#edf1f5;
+    --ink:#142032; --muted:#59687a; --line:#d5dde6; --primary:#075f75;
+    --good:#16734b; --warn:#9a5a08; --danger:#b22d37; --projected:#66558f; --focus:#156fce;
+    --on-primary:#ffffff;
+    /* Thermal ramp: only for temperature. Same values in both themes. */
+    --t-cool:#2a9db5; --t-mild:#6fb58a; --t-warm:#e0a33a; --t-hot:#d24b3e;
+    --font:"Be Vietnam Pro","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg:#0f1722; --surface:#172230; --surface-raised:#1c2939; --surface-sunken:#111b27;
+    --ink:#f2f6fa; --muted:#aab7c6; --line:#344354; --primary:#67c3d6;
+    --good:#70d0a1; --warn:#f1bd70; --danger:#ff929b; --projected:#c1aceb; --focus:#84bdff;
+    --on-primary:#08171c;
+  }
+  *, *::before, *::after { box-sizing:border-box; }
+  html, body { overflow-x:clip; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--font); font-size:16px; line-height:1.55; -webkit-text-size-adjust:100%; }
+  .num { font-variant-numeric:tabular-nums; }
+  a { color:var(--primary); }
+  :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+  .wrap { max-width:1120px; margin:0 auto; padding:0 24px; }
+  h1, h2, h3 { line-height:1.2; margin:0; letter-spacing:-0.01em; }
+  h1 { font-size:34px; font-weight:700; }
+  h2 { font-size:20px; font-weight:600; margin-bottom:12px; }
+  p { margin:0 0 12px; max-width:68ch; }
+  .muted { color:var(--muted); }
+  .small { font-size:14px; }
+  .usd { color:var(--muted); font-size:.85em; font-weight:400; white-space:nowrap; margin-left:6px; }
+
+  /* Top bar (same as /business) */
+  .topbar { background:var(--surface); border-bottom:1px solid var(--line); }
+  .topbar .wrap { display:flex; align-items:center; gap:16px; min-height:64px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; color:var(--ink); text-decoration:none; }
+  .brand-mark { width:30px; height:30px; color:var(--primary); flex:0 0 auto; }
+  .topnav { display:flex; gap:4px; margin-left:auto; }
+  .topnav a { display:inline-flex; align-items:center; min-height:44px; padding:0 12px; border-radius:8px; color:var(--ink); text-decoration:none; font-size:14px; }
+  .topnav a:hover { background:var(--surface-sunken); }
+  .topnav a[aria-current="page"] { font-weight:600; box-shadow:inset 0 -2px 0 var(--primary); border-radius:8px 8px 0 0; }
+  .btn, button {
+    font:inherit; font-size:14px; font-weight:600; min-height:44px; padding:0 16px; border-radius:8px;
+    display:inline-flex; align-items:center; justify-content:center; gap:8px; cursor:pointer; text-decoration:none;
+    background:var(--primary); color:var(--on-primary); border:1px solid var(--primary);
+  }
+  .btn.ghost, button.ghost { background:var(--surface); color:var(--ink); border-color:var(--line); }
+  .btn.ghost:hover, button.ghost:hover { border-color:var(--muted); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .theme-toggle svg { width:18px; height:18px; }
+
+  /* Scenario header */
+  .scenario { padding-top:32px; padding-bottom:16px; }
+  .scenario p { margin:8px 0 0; }
+  .tag { display:inline-block; font-size:13px; font-weight:600; color:var(--projected); border:1px solid currentColor; border-radius:999px; padding:2px 10px; white-space:nowrap; }
+
+  /* Sticky clock + controls: the demo tag stays visible while scrolling */
+  .controlbar { position:sticky; top:0; z-index:5; background:color-mix(in srgb,var(--bg) 92%,transparent); backdrop-filter:blur(6px); border-bottom:1px solid var(--line); }
+  .controlbar .wrap { display:flex; align-items:center; gap:12px 16px; flex-wrap:wrap; padding-top:10px; padding-bottom:10px; }
+  .clock { font-size:34px; font-weight:700; font-variant-numeric:tabular-nums; min-width:3.2em; line-height:1; }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; }
+  .speed { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .speed button { border:0; border-radius:0; background:var(--surface); color:var(--ink); min-width:48px; }
+  .speed button[aria-pressed="true"] { background:var(--primary); color:var(--on-primary); }
+  .controlbar .tag { margin-left:auto; }
+
+  /* Night timeline */
+  .timeline { padding:20px 0 8px; }
+  .tl { position:relative; height:28px; background:var(--surface-sunken); border:1px solid var(--line); border-radius:6px; }
+  .tl-fill { position:absolute; left:0; top:0; bottom:0; background:color-mix(in srgb,var(--primary) 18%,transparent); border-radius:6px 0 0 6px; }
+  .tl-head { position:absolute; top:-5px; bottom:-5px; width:3px; margin-left:-1.5px; background:var(--primary); border-radius:2px; }
+  .tl-mark { position:absolute; top:50%; width:12px; height:12px; margin:-6px 0 0 -6px; border:2px solid var(--surface); }
+  .tl-mark.heat { background:var(--t-hot); border-radius:50%; }
+  .tl-mark.staff { background:var(--projected); border-radius:2px; }
+  .tl-mark.done { background:var(--good); border-radius:2px; transform:rotate(45deg); }
+  .tl-ticks { position:relative; height:22px; font-size:12px; color:var(--muted); margin-top:4px; }
+  .tl-ticks span { position:absolute; transform:translateX(-50%); }
+  .tl-ticks span:first-child { transform:none; }
+  .tl-ticks span:last-child { transform:translateX(-100%); }
+  .tl-key { display:flex; flex-wrap:wrap; gap:4px 18px; font-size:13px; color:var(--muted); margin:4px 0 0; padding:0; list-style:none; }
+  .tl-key i { display:inline-block; width:10px; height:10px; margin-right:6px; vertical-align:0; }
+
+  /* Main layout */
+  .stage { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:24px; padding:16px 0 24px; align-items:start; }
+  .panel { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
+
+  /* Floor plan */
+  .floor { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+  .room { border:2px solid var(--line); border-radius:6px; padding:10px; position:relative; }
+  .room h3 { font-size:14px; font-weight:600; color:var(--muted); margin:0 0 8px; }
+  .room.a { grid-column:span 4; } .room.b { grid-column:span 3; } .room.lib { grid-column:span 1; } .room.off { grid-column:span 2; }
+  .tiles { display:grid; gap:8px; }
+  .room.a .tiles { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .room.b .tiles { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .room.lib .tiles { grid-template-columns:1fr; }
+  .room.off .tiles { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .tile { border-radius:6px; padding:8px 10px 10px 10px; border-left:4px solid var(--t-cool); min-height:124px; background:var(--surface-sunken); }
+  .tile .pc { font-size:14px; font-weight:600; }
+  .tile .temp { font-size:26px; font-weight:700; line-height:1.15; font-variant-numeric:tabular-nums; }
+  .tile .state { font-size:13px; font-weight:600; }
+  .tile .job { font-size:13px; color:var(--ink); opacity:.85; line-height:1.3; margin-top:2px; overflow-wrap:anywhere; }
+  .tile[data-state="cooling"] .state { color:var(--warn); }
+  .tile[data-state="resting"] .state, .tile[data-state="idle"] .state { color:var(--muted); }
+  .tile[data-state="staff"] .state { color:var(--projected); }
+  .ramp-key { display:flex; flex-wrap:wrap; gap:4px 16px; font-size:13px; color:var(--muted); margin:12px 0 0; padding:0; list-style:none; }
+  .ramp-key i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
+
+  /* Tonight */
+  .stats { margin:0; display:grid; gap:12px; }
+  .stats div { display:grid; gap:0; }
+  .stats dt { font-size:14px; color:var(--muted); }
+  .stats dd { margin:0; font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .stats dd .note { display:block; font-size:13px; font-weight:400; color:var(--muted); }
+  .log-head { font-size:16px; margin:20px 0 8px; }
+  .log { list-style:none; margin:0; padding:0; font-size:14px; line-height:1.4; min-height:8.5em; }
+  .log li { padding:6px 0 6px 10px; border-left:3px solid var(--line); margin-bottom:4px; }
+  .log li.heat { border-left-color:var(--t-hot); }
+  .log li.staff { border-left-color:var(--projected); }
+  .log li.done { border-left-color:var(--good); }
+  .log b { font-variant-numeric:tabular-nums; margin-right:4px; }
+
+  /* Job queue */
+  .queue-wrap { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:15px; font-variant-numeric:tabular-nums; min-width:520px; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  thead th { font-size:14px; color:var(--muted); font-weight:600; border-bottom-color:var(--muted); }
+  td.r, th.r { text-align:right; white-space:nowrap; }
+  .bar { height:10px; background:var(--surface-sunken); border:1px solid var(--line); border-radius:5px; overflow:hidden; min-width:120px; }
+  .bar span { display:block; height:100%; background:var(--primary); border-radius:0 4px 4px 0; }
+
+  /* Morning report */
+  .report { border:2px solid var(--primary); border-radius:10px; padding:20px 24px; background:var(--surface); margin:16px 0 8px; }
+  .report h2 { font-size:26px; margin-bottom:12px; }
+  .report h2:focus { outline:none; }
+  .report ul { padding-left:20px; margin:0 0 12px; }
+  .report li { margin-bottom:4px; }
+  .report .totals { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px 24px; margin:16px 0; }
+  .report .totals div { font-size:14px; color:var(--muted); }
+  .report .totals strong { display:block; font-size:20px; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .report .actions { display:flex; gap:12px; flex-wrap:wrap; }
+
+  footer { border-top:1px solid var(--line); padding:24px 0 40px; background:var(--surface); margin-top:24px; }
+
+  @media (max-width:960px) {
+    .stage { grid-template-columns:1fr; }
+  }
+  @media (max-width:600px) {
+    .wrap { padding:0 16px; }
+    h1 { font-size:26px; }
+    .topnav { margin-left:0; width:100%; order:3; }
+    .topbar .theme-toggle { margin-left:auto; }
+    .topnav a { padding:0 10px; }
+    .theme-text { display:none; }
+    .clock { font-size:26px; min-width:0; }
+    .controls button { padding:0 12px; }
+    .speed button { min-width:44px; }
+    .controlbar .tag { margin-left:0; }
+    .floor { grid-template-columns:1fr; }
+    .room.a, .room.b, .room.lib, .room.off { grid-column:auto; }
+    .room .tiles, .room.a .tiles, .room.b .tiles, .room.off .tiles { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .room.lib .tiles { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .panel { padding:14px; }
+    .report { padding:16px; }
+  }
+  @media (prefers-reduced-motion:reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" fill="none">
+        <path d="M10 6a8 8 0 1 1-2.8 15.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M10 6v11.2a4 4 0 1 0 4.5 0V6a2.25 2.25 0 0 0-4.5 0Z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M19.5 12.5 24 16l-4.5 3.5M23.5 16h-8" stroke="#6ee7a8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Thermal Orchestrator</span>
+    </a>
+    <nav class="topnav" aria-label="Main">
+      <a href="/">Home</a>
+      <a href="/business">Business case</a>
+      <a href="/night-shift" aria-current="page">Night demo</a>
+    </nav>
+    <button class="ghost theme-toggle" type="button" aria-pressed="false" aria-label="Turn on dark mode">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4m0-12.8L17 7m-10 10-1.4 1.4M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span class="theme-text">Dark mode</span>
+    </button>
+  </div>
+</header>
+
+<div class="wrap scenario">
+  <h1>One night on ten school PCs</h1>
+  <p><strong>Example scenario: Vinschool The Harmony (not a customer)</strong></p>
+  <p class="muted">A school like our target profile: 500+ students, 20–30 cameras, 10 PCs free after classes. AI jobs start at 17:30. The morning report is ready at 06:30.</p>
+</div>
+
+<div class="controlbar">
+  <div class="wrap">
+    <div class="clock" id="clock" aria-label="Simulated time">17:30</div>
+    <div class="controls">
+      <button type="button" id="playBtn" class="ghost">Pause</button>
+      <div class="speed" role="group" aria-label="Speed">
+        <button type="button" id="speed1" aria-pressed="true">1×</button>
+        <button type="button" id="speed4" aria-pressed="false">4×</button>
+      </div>
+      <button type="button" id="replayBtn" class="ghost">Replay</button>
+    </div>
+    <span class="tag">Demo data — simulated night</span>
+  </div>
+</div>
+
+<main class="wrap">
+  <section class="timeline" aria-label="Night timeline from 17:30 to 06:30">
+    <div class="tl" id="tl">
+      <div class="tl-fill" id="tlFill"></div>
+      <div class="tl-head" id="tlHead"></div>
+    </div>
+    <div class="tl-ticks" id="tlTicks" aria-hidden="true"></div>
+    <ul class="tl-key" aria-hidden="true">
+      <li><i style="background:var(--t-hot);border-radius:50%"></i>Heat move</li>
+      <li><i style="background:var(--projected);border-radius:2px"></i>Staff sign-in / sign-out</li>
+      <li><i style="background:var(--good);transform:rotate(45deg)"></i>All jobs done</li>
+    </ul>
+  </section>
+
+  <section class="report" id="report" hidden aria-labelledby="reportTitle">
+    <h2 id="reportTitle" tabindex="-1">Morning report — ready at 06:30</h2>
+    <ul id="reportLines"></ul>
+    <p><strong>Every result needs a person to check it before anyone acts on it.</strong></p>
+    <div class="totals" id="reportTotals"></div>
+    <div class="actions">
+      <button type="button" id="replayBtn2">Replay the night</button>
+      <a class="btn ghost" href="/business">See the business case</a>
+    </div>
+  </section>
+
+  <div class="stage">
+    <section class="panel" aria-labelledby="floorTitle">
+      <h2 id="floorTitle">Floor plan</h2>
+      <div class="floor" id="floor"></div>
+      <ul class="ramp-key">
+        <li><i style="background:var(--t-cool)"></i>45 °C or less</li>
+        <li><i style="background:var(--t-mild)"></i>55 °C</li>
+        <li><i style="background:var(--t-warm)"></i>68 °C</li>
+        <li><i style="background:var(--t-hot)"></i>78 °C or more</li>
+        <li>Jobs move away at 76 °C. Limit 80 °C.</li>
+      </ul>
+    </section>
+
+    <section class="panel" aria-labelledby="tonightTitle">
+      <h2 id="tonightTitle">Tonight</h2>
+      <dl class="stats">
+        <div><dt>Jobs done</dt><dd id="stJobs">0 / 36</dd></div>
+        <div><dt>Staff hours saved</dt><dd id="stHours">0.0 h</dd></div>
+        <div><dt>Value tonight</dt><dd><span id="stValue">0 VND</span><span class="note">at an assumed 60,000 VND per staff hour (our assumption)</span></dd></div>
+        <div><dt>Hottest PC</dt><dd><span id="stHot">—</span><span class="note">limit 80 °C</span></dd></div>
+      </dl>
+      <h3 class="log-head">Event log</h3>
+      <ol class="log" id="log" aria-live="polite"></ol>
+      <p class="small muted" style="margin:8px 0 0">Simplified: moved jobs keep their progress in this demo.</p>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="queueTitle">
+    <h2 id="queueTitle">Job queue</h2>
+    <div class="queue-wrap">
+      <table>
+        <thead><tr><th scope="col">Module</th><th scope="col" class="r">Done</th><th scope="col">Progress</th><th scope="col" class="r">Running</th><th scope="col" class="r">Waiting</th></tr></thead>
+        <tbody id="queueBody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="small muted">Demo data — simulated night. The school is an example scenario, not a customer. No real student data is used.</p>
+  </div>
+</footer>
+
+<pre id="nightSummary" hidden></pre>
+
+<script>
+(function () {
+  'use strict';
+  var THEME_KEY = 'thermal_dashboard_theme';
+  var RATE = 26000; // VND per USD
+
+  // ---------- Theme ----------
+  function applyTheme(t) {
+    var dark = t === 'dark';
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.querySelectorAll('.theme-toggle').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(dark));
+      b.setAttribute('aria-label', dark ? 'Turn on light mode' : 'Turn on dark mode');
+      var s = b.querySelector('.theme-text');
+      if (s) s.textContent = dark ? 'Light mode' : 'Dark mode';
+    });
+  }
+  applyTheme(document.documentElement.dataset.theme);
+  document.querySelectorAll('.theme-toggle').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
+      applyTheme(t);
+    });
+  });
+
+  // ---------- Money format (input in millions of VND) ----------
+  function vnd(m) {
+    if (Math.abs(m) < 1) return Math.round(m * 1e6).toLocaleString('en-US') + ' VND';
+    var r = Math.round(m * 10) / 10;
+    return (r % 1 === 0 ? String(r) : r.toFixed(1)) + 'M VND';
+  }
+  function usd(m) {
+    var d = m * 1e6 / RATE;
+    return '≈ ' + (Math.abs(d) >= 1000 ? '$' + (d / 1000).toFixed(1) + 'k' : '$' + Math.round(d));
+  }
+
+  // ================= Simulation (no DOM in here) =================
+  var START = 17 * 60 + 30;     // 17:30
+  var NIGHT = 780;              // 17:30 -> 06:30, in sim-minutes
+  var STEP = 0.5;               // fixed step, in sim-minutes
+  var HEAT_LIMIT = 76;          // move the job away at this temperature
+  var STAFF_IN = 190, STAFF_OUT = 280; // 20:40 and 22:10
+  var HOURS_PER_MODULE = 1.8;   // 40 hours a month / 22 school nights
+  var WAGE = 60000;             // VND per staff hour (our assumption)
+
+  var PC_DEFS = [
+    { name: 'Lab A-01', room: 'a', load: 70 }, { name: 'Lab A-02', room: 'a', load: 72 },
+    { name: 'Lab A-03', room: 'a', load: 84 }, { name: 'Lab A-04', room: 'a', load: 68 },
+    { name: 'Lab B-01', room: 'b', load: 71 }, { name: 'Lab B-02', room: 'b', load: 66 },
+    { name: 'Lab B-03', room: 'b', load: 73 }, { name: 'LIB-01', room: 'lib', load: 69 },
+    { name: 'OFF-01', room: 'off', load: 81 }, { name: 'OFF-02', room: 'off', load: 67 }
+  ];
+  function seq(prefix, list) { return list.map(function (x) { return prefix + x; }); }
+  var MODULES = [
+    { key: 'camera', label: 'Camera review', min: 140, max: 190,
+      names: seq('Camera ', [1,2,3,4,5,6,7,8,9,10,11,12]).map(function (n) { return n + ' footage'; }) },
+    { key: 'attendance', label: 'Attendance alerts', min: 30, max: 45,
+      names: seq('Attendance grade ', [6,7,8,9]) },
+    { key: 'learning', label: 'Learning analysis', min: 60, max: 90,
+      names: seq('Grades: class ', ['6A','6B','7A','7B','8A','8B','9A','9B']) },
+    { key: 'forms', label: 'Form reading', min: 60, max: 80,
+      names: seq('Enrolment forms batch ', [1,2,3,4,5,6,7,8,9,10,11,12]) }
+  ];
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function clock(t) {
+    var m = Math.floor(START + t) % 1440;
+    var h = Math.floor(m / 60), mm = m % 60;
+    return (h < 10 ? '0' : '') + h + ':' + (mm < 10 ? '0' : '') + mm;
+  }
+
+  function newNight() {
+    var rnd = mulberry32(2026);
+    var between = function (a, b) { return a + rnd() * (b - a); };
+    var pcs = PC_DEFS.map(function (d) {
+      var idle = Math.round(between(34, 39) * 10) / 10;
+      return { name: d.name, room: d.room, loadTemp: d.load, idleTemp: idle, temp: idle, state: 'idle', job: null };
+    });
+    var lists = MODULES.map(function (m) {
+      return m.names.map(function (n) {
+        return { name: n, module: m.key, dur: Math.round(between(m.min, m.max)), progress: 0, done: false,
+          hours: HOURS_PER_MODULE / m.names.length, result: 0 };
+      });
+    });
+    // Queue round-robin by module so every module moves forward.
+    var queue = [];
+    for (var i = 0; i < 12; i++) lists.forEach(function (l) { if (l[i]) queue.push(l[i]); });
+    return { rnd: rnd, t: 0, pcs: pcs, jobs: queue.slice(), queue: queue, log: [], marks: [],
+      heatMoves: 0, staffMoves: 0, hottest: 0, hottestPc: '', jobsDone: 0, hoursSaved: 0,
+      lastJobDoneTime: null, finished: false };
+  }
+
+  function coolestIdle(s) {
+    var best = null;
+    s.pcs.forEach(function (p) { if (p.state === 'idle' && (!best || p.temp < best.temp)) best = p; });
+    return best;
+  }
+  function addLog(s, kind, text) { s.log.push({ t: s.t, kind: kind, text: clock(s.t) + ' ' + text }); }
+
+  // Move a job off a PC: to the coolest idle PC, else first in the queue (like requeue_front in balancer.py).
+  function moveJob(s, job) {
+    var to = coolestIdle(s);
+    if (to) { to.state = 'working'; to.job = job; return to; }
+    s.queue.unshift(job);
+    return null;
+  }
+
+  function step(s) {
+    if (s.finished) return;
+    s.t += STEP;
+    var t = s.t;
+
+    // Staff event on OFF-02.
+    var off2 = s.pcs[9];
+    if (t === STAFF_IN) {
+      var j = off2.job, msg = 'Staff signed in on OFF-02.';
+      off2.state = 'staff'; off2.job = null;
+      if (j) {
+        s.staffMoves++;
+        var to = moveJob(s, j);
+        msg += to ? " Paused '" + j.name + "' and moved it to " + to.name + '.' : " Paused '" + j.name + "'. Put it first in the queue.";
+      }
+      addLog(s, 'staff', msg);
+      s.marks.push({ t: t, kind: 'staff', label: clock(t) + ' staff signed in on OFF-02' });
+    }
+    if (t === STAFF_OUT) {
+      off2.state = 'idle';
+      addLog(s, 'staff', 'OFF-02 is free again.');
+      s.marks.push({ t: t, kind: 'staff', label: clock(t) + ' OFF-02 is free again' });
+    }
+
+    // Temperatures and job progress.
+    s.pcs.forEach(function (p) {
+      var target = p.state === 'working' ? p.loadTemp : p.state === 'staff' ? 45 : p.idleTemp;
+      p.temp += (target - p.temp) * 0.06 * STEP + (s.rnd() * 2 - 1) * 0.3;
+      if (p.temp > s.hottest) { s.hottest = p.temp; s.hottestPc = p.name; }
+      if (p.state === 'cooling' && p.temp < p.idleTemp + 6) p.state = 'resting';
+      if (p.state === 'working') {
+        var job = p.job;
+        job.progress += STEP;
+        if (job.progress >= job.dur) {
+          job.done = true;
+          var r = s.rnd();
+          job.result = job.module === 'camera' ? Math.floor(r * 3) :
+                       job.module === 'attendance' ? 1 + Math.floor(r * 3) :
+                       job.module === 'learning' ? Math.floor(r * 2) : Math.floor(r * 4);
+          s.jobsDone++; s.hoursSaved += job.hours;
+          p.job = null; p.state = 'idle';
+          addLog(s, 'job', p.name + " finished '" + job.name + "'.");
+          if (s.jobsDone === s.jobs.length) {
+            s.lastJobDoneTime = clock(t);
+            addLog(s, 'done', 'All jobs done. PCs go back to sleep.');
+            s.marks.push({ t: t, kind: 'done', label: clock(t) + ' all jobs done' });
+          }
+        }
+      }
+    });
+
+    // Thermal rule: a hot PC hands its job on and rests for the rest of the night.
+    s.pcs.forEach(function (p) {
+      if (p.state === 'working' && p.temp >= HEAT_LIMIT) {
+        var job = p.job;
+        p.job = null; p.state = 'cooling';
+        s.heatMoves++;
+        var to = moveJob(s, job);
+        addLog(s, 'heat', p.name + " reached 76 °C. " + (to ? "Moved '" + job.name + "' to " + to.name + '.' : "Put '" + job.name + "' first in the queue."));
+        s.marks.push({ t: t, kind: 'heat', label: clock(t) + ' heat move from ' + p.name });
+      }
+    });
+
+    // Each idle PC takes the next job; coolest PCs first.
+    if (s.queue.length) {
+      s.pcs.filter(function (p) { return p.state === 'idle'; })
+        .sort(function (a, b) { return a.temp - b.temp; })
+        .forEach(function (p) {
+          if (!s.queue.length) return;
+          p.job = s.queue.shift(); p.state = 'working';
+        });
+    }
+
+    if (t >= NIGHT) s.finished = true;
+  }
+
+  function summary(s) {
+    return { lastJobDoneTime: s.lastJobDoneTime, heatMoves: s.heatMoves, staffMoves: s.staffMoves,
+      hottestTemp: Math.round(s.hottest * 10) / 10, hottestPc: s.hottestPc, jobsDone: s.jobsDone,
+      hoursSaved: Math.round(s.hoursSaved * 10) / 10 };
+  }
+  // ================= End of simulation =================
+
+  // ---------- Page ----------
+  var $ = function (id) { return document.getElementById(id); };
+  var RAMP = [[45, [0x2a, 0x9d, 0xb5]], [55, [0x6f, 0xb5, 0x8a]], [68, [0xe0, 0xa3, 0x3a]], [78, [0xd2, 0x4b, 0x3e]]];
+  function rampColor(temp) {
+    if (temp <= RAMP[0][0]) return 'rgb(' + RAMP[0][1] + ')';
+    for (var i = 1; i < RAMP.length; i++) {
+      if (temp <= RAMP[i][0]) {
+        var a = RAMP[i - 1], b = RAMP[i], k = (temp - a[0]) / (b[0] - a[0]);
+        return 'rgb(' + a[1].map(function (v, j) { return Math.round(v + (b[1][j] - v) * k); }) + ')';
+      }
+    }
+    return 'rgb(' + RAMP[RAMP.length - 1][1] + ')';
+  }
+  var STATE_TEXT = { idle: 'Idle', working: 'Working', cooling: 'Cooling down', resting: 'Resting', staff: 'In use by staff' };
+
+  // Build the floor plan once.
+  var ROOMS = [['a', 'Computer lab A'], ['b', 'Computer lab B'], ['lib', 'Library'], ['off', 'Office']];
+  var tileEls = [];
+  ROOMS.forEach(function (r) {
+    var room = document.createElement('div');
+    room.className = 'room ' + r[0];
+    room.innerHTML = '<h3>' + r[1] + '</h3><div class="tiles"></div>';
+    var tiles = room.querySelector('.tiles');
+    PC_DEFS.forEach(function (d, i) {
+      if (d.room !== r[0]) return;
+      var t = document.createElement('div');
+      t.className = 'tile';
+      t.innerHTML = '<div class="pc"></div><div class="temp"></div><div class="state"></div><div class="job"></div>';
+      t.querySelector('.pc').textContent = d.name;
+      tiles.appendChild(t);
+      tileEls[i] = t;
+    });
+    $('floor').appendChild(room);
+  });
+
+  // Timeline ticks.
+  (function () {
+    // Start, every 2 hours from 20:00 to 04:00, end. Keeps labels apart on phones.
+    var ticks = $('tlTicks'), list = [0, 150, 270, 390, 510, 630, NIGHT];
+    list.forEach(function (m) {
+      var sp = document.createElement('span');
+      sp.style.left = (m / NIGHT * 100) + '%';
+      sp.textContent = clock(m);
+      ticks.appendChild(sp);
+    });
+  })();
+
+  // Job queue rows.
+  var qRows = {};
+  MODULES.forEach(function (m) {
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<th scope="row"></th><td class="r"></td><td><div class="bar"><span></span></div></td><td class="r"></td><td class="r"></td>';
+    tr.firstChild.textContent = m.label;
+    $('queueBody').appendChild(tr);
+    qRows[m.key] = tr;
+  });
+
+  var sim, timer = null, playing = false, speed = 1, logShown = 0, marksShown = 0;
+  try { if (new URLSearchParams(location.search).get('speed') === '4') speed = 4; } catch (e) {}
+
+  function render() {
+    var s = sim;
+    $('clock').textContent = clock(s.t);
+    var pct = (s.t / NIGHT * 100) + '%';
+    $('tlFill').style.width = pct; $('tlHead').style.left = pct;
+
+    s.pcs.forEach(function (p, i) {
+      var el = tileEls[i], c = rampColor(p.temp);
+      var mix = Math.max(18, Math.min(45, 18 + (p.temp - 40) / 40 * 27));
+      el.style.background = 'color-mix(in srgb, ' + c + ' ' + mix.toFixed(1) + '%, var(--surface))';
+      el.style.borderLeftColor = c;
+      el.dataset.state = p.state;
+      el.querySelector('.temp').textContent = Math.round(p.temp) + ' °C';
+      el.querySelector('.state').textContent = STATE_TEXT[p.state];
+      el.querySelector('.job').textContent = p.job ? p.job.name : '—';
+    });
+
+    $('stJobs').textContent = s.jobsDone + ' / ' + s.jobs.length;
+    $('stHours').textContent = s.hoursSaved.toFixed(1) + ' h';
+    var val = s.hoursSaved * WAGE / 1e6;
+    $('stValue').textContent = vnd(val);
+    var u = document.createElement('span'); u.className = 'usd'; u.textContent = usd(val); $('stValue').appendChild(u);
+    $('stHot').textContent = s.hottestPc ? Math.round(s.hottest) + ' °C on ' + s.hottestPc : '—';
+
+    // Event log: newest first, last 8.
+    if (s.log.length !== logShown) {
+      logShown = s.log.length;
+      var ol = $('log'); ol.innerHTML = '';
+      s.log.slice(-8).reverse().forEach(function (e) {
+        var li = document.createElement('li');
+        li.className = e.kind;
+        var b = document.createElement('b'); b.textContent = e.text.slice(0, 5);
+        li.appendChild(b);
+        li.appendChild(document.createTextNode(e.text.slice(6)));
+        ol.appendChild(li);
+      });
+    }
+    // Timeline markers.
+    while (marksShown < s.marks.length) {
+      var mk = s.marks[marksShown++], d = document.createElement('div');
+      d.className = 'tl-mark ' + mk.kind;
+      d.style.left = (mk.t / NIGHT * 100) + '%';
+      d.title = mk.label;
+      d.setAttribute('role', 'img'); d.setAttribute('aria-label', mk.label);
+      $('tl').appendChild(d);
+    }
+    // Job queue.
+    MODULES.forEach(function (m) {
+      var js = s.jobs.filter(function (j) { return j.module === m.key; });
+      var done = 0, running = 0, waiting = 0, work = 0, total = 0;
+      js.forEach(function (j) {
+        total += j.dur; work += Math.min(j.progress, j.dur);
+        if (j.done) done++;
+        else if (s.queue.indexOf(j) >= 0) waiting++;
+        else if (s.pcs.some(function (p) { return p.job === j; })) running++;
+      });
+      var tds = qRows[m.key].children;
+      tds[1].textContent = done + ' / ' + js.length;
+      tds[2].firstChild.firstChild.style.width = (work / total * 100).toFixed(1) + '%';
+      tds[3].textContent = running;
+      tds[4].textContent = waiting;
+    });
+  }
+
+  function showReport() {
+    var s = sim, sum = function (k) {
+      return s.jobs.filter(function (j) { return j.module === k && j.done; }).reduce(function (a, j) { return a + j.result; }, 0);
+    };
+    var cam = sum('camera'), att = sum('attendance'), lrn = sum('learning'), frm = sum('forms');
+    var lines = [
+      'Camera review: 12 cameras checked, ' + cam + (cam === 1 ? ' clip' : ' clips') + ' flagged for the guard to review.',
+      'Attendance alerts: 4 grades checked, ' + att + (att === 1 ? ' student' : ' students') + ' for form teachers to check.',
+      'Learning analysis: 8 classes checked, ' + lrn + (lrn === 1 ? ' class' : ' classes') + ' may need review lessons.',
+      'Form reading: 12 batches checked, ' + frm + (frm === 1 ? ' form' : ' forms') + ' missing information.'
+    ];
+    var ul = $('reportLines'); ul.innerHTML = '';
+    lines.forEach(function (t) { var li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+    var val = s.hoursSaved * WAGE / 1e6, moves = s.heatMoves + s.staffMoves;
+    var totals = [
+      ['Jobs done', s.jobsDone + ' / ' + s.jobs.length],
+      ['Staff hours saved', s.hoursSaved.toFixed(1) + ' h'],
+      ['Value tonight', vnd(val) + ' ' + usd(val), 'at an assumed 60,000 VND per staff hour (our assumption)'],
+      ['Over a month', 'about ' + Math.round(s.hoursSaved * 22) + ' hours', 'across 22 school nights'],
+      ['Hottest PC', Math.round(s.hottest) + ' °C on ' + s.hottestPc, 'limit 80 °C'],
+      ['Moved jobs', moves + (moves === 1 ? ' job' : ' jobs') + ' moved away from hot or busy PCs']
+    ];
+    var box = $('reportTotals'); box.innerHTML = '';
+    totals.forEach(function (r) {
+      var d = document.createElement('div'), st = document.createElement('strong');
+      d.textContent = r[0]; st.textContent = r[1]; d.appendChild(st);
+      if (r[2]) { var n = document.createElement('span'); n.textContent = r[2]; d.appendChild(n); }
+      box.appendChild(d);
+    });
+    $('report').hidden = false;
+    $('reportTitle').focus({ preventScroll: true });
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    $('report').scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  }
+
+  function tick() {
+    for (var i = 0; i < speed; i++) step(sim); // 4x = four fixed steps, never one big step
+    render();
+    if (sim.finished) {
+      stop();
+      $('playBtn').disabled = true;
+      var sm = summary(sim);
+      window.__nightSummary = sm;
+      $('nightSummary').textContent = JSON.stringify(sm);
+      showReport();
+    }
+  }
+  function play() { if (playing || sim.finished) return; playing = true; timer = setInterval(tick, 100); $('playBtn').textContent = 'Pause'; }
+  function stop() { playing = false; clearInterval(timer); timer = null; $('playBtn').textContent = 'Play'; }
+  function setSpeed(n) {
+    speed = n;
+    $('speed1').setAttribute('aria-pressed', String(n === 1));
+    $('speed4').setAttribute('aria-pressed', String(n === 4));
+  }
+  function replay() {
+    stop();
+    sim = newNight();
+    logShown = -1; marksShown = 0;
+    document.querySelectorAll('.tl-mark').forEach(function (m) { m.remove(); });
+    $('report').hidden = true;
+    $('playBtn').disabled = false;
+    window.__nightSummary = null; $('nightSummary').textContent = '';
+    render();
+    play();
+  }
+
+  $('playBtn').addEventListener('click', function () { playing ? stop() : play(); });
+  $('speed1').addEventListener('click', function () { setSpeed(1); });
+  $('speed4').addEventListener('click', function () { setSpeed(4); });
+  $('replayBtn').addEventListener('click', replay);
+  $('replayBtn2').addEventListener('click', function () { replay(); window.scrollTo(0, 0); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== ' ' && e.code !== 'Space') return;
+    var tag = (e.target && e.target.tagName) || '';
+    if (/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(tag)) return;
+    e.preventDefault();
+    if (!sim.finished) (playing ? stop : play)();
+  });
+
+  setSpeed(speed);
+  replay();
+})();
+</script>
+</body>
+</html>

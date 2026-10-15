@@ -719,8 +719,8 @@
       <span>Thermal Orchestrator</span>
     </div>
     <div class="landing-nav-actions">
-      <a class="btn ghost" href="/business" style="display:inline-flex;align-items:center">Business case</a>
-      <a class="btn ghost" href="/night-shift" style="display:inline-flex;align-items:center">Night demo</a>
+      <a class="btn ghost" href="business.html" style="display:inline-flex;align-items:center">Business case</a>
+      <a class="btn ghost" href="night-shift.html" style="display:inline-flex;align-items:center">Night demo</a>
       <button class="ghost theme-toggle" id="themeToggleLanding" type="button" aria-label="Turn on dark mode" aria-pressed="false" onclick="toggleTheme()">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4m0-12.8L17 7m-10 10-1.4 1.4M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         <span class="theme-toggle-text">Dark mode</span>
@@ -1188,6 +1188,20 @@
         <button onclick="saveThreshold()">Save</button></span>
       </div>
       <p class="muted">Nodes predicted to exceed this within 3 minutes stop receiving new jobs.</p>
+    </div>
+    <div class="panel">
+      <h3>Job schedule</h3>
+      <div class="row">
+        <span>Background jobs run from</span>
+        <span><input type="time" id="winStart" oninput="winEdited = true"> to <input type="time" id="winEnd" oninput="winEdited = true">
+        <button onclick="saveRunWindow()">Save</button></span>
+      </div>
+      <p class="muted">Leave both empty to run any time. Chat always works.</p>
+      <div class="row">
+        <span id="stopAllStatus"></span>
+        <span><button id="stopAllBtn" onclick="toggleStopAll()">Stop all jobs</button></span>
+      </div>
+      <p class="muted">Stops handing out jobs on every PC, chat included. A job already running on a PC finishes by itself, and its result is ignored.</p>
     </div>
     <div class="panel">
       <h3>Chat LLM model</h3>
@@ -3527,6 +3541,8 @@ const MAX_CHART_POINTS = 180;
 const MAX_HISTORY_POINTS = MAX_CHART_POINTS * 4;
 const telemetryHistory = [];
 let threshEdited = false;
+let winEdited = false;
+let jobsPaused = false;
 let llmModelEdited = false;
 let ws = null;
 let chatPollTimer = null;
@@ -4100,7 +4116,8 @@ function render(s) {
         <div class="safety-bar" aria-label="Safety margin to threshold"><span data-k="safety"></span></div>
         <div class="metric-grid"><div class="metric" data-k="gpu"></div>
         <div class="metric" data-k="util"></div><div class="metric" data-k="pow"></div>
-        <div class="metric" data-k="jobs"></div><div class="metric" data-k="state"></div></div>
+        <div class="metric" data-k="jobs"></div><div class="metric" data-k="state"></div>
+        <div class="metric" data-k="user"></div></div>
         <div class="decision-reason" data-k="reason"></div>`;
       wrap.appendChild(el);
     }
@@ -4143,6 +4160,7 @@ function render(s) {
     setNodeMetric(el, 'jobs', 'Jobs received: ' + n.dispatched,
       live && n.dispatched != null && n.dispatched > 0);
     setNodeMetric(el, 'state', '', false);
+    setNodeMetric(el, 'user', 'User active: no new jobs', live && n.user_active === true);
     const decision = decisionReason(n);
     const reason = el.querySelector('[data-k=reason]');
     reason.hidden = !decision;
@@ -4172,6 +4190,17 @@ function render(s) {
   document.getElementById('alerts').textContent = alerts.join('   ');
   const t = document.getElementById('thresh');
   if (!threshEdited) t.value = s.threshold_c;
+  const winStart = document.getElementById('winStart');
+  const winEnd = document.getElementById('winEnd');
+  if (winStart && winEnd && !winEdited) {
+    winStart.value = s.run_window_start || '';
+    winEnd.value = s.run_window_end || '';
+  }
+  jobsPaused = !!s.jobs_paused;
+  const stopAllBtn = document.getElementById('stopAllBtn');
+  if (stopAllBtn) stopAllBtn.textContent = jobsPaused ? 'Resume jobs' : 'Stop all jobs';
+  const stopAllStatus = document.getElementById('stopAllStatus');
+  if (stopAllStatus) stopAllStatus.textContent = jobsPaused ? 'All jobs stopped' : '';
   if (s.esg) {
     const t1 = s.esg.tier1_measured || {};
     const t2 = s.esg.tier2_derived || {};
@@ -4602,6 +4631,30 @@ async function saveThreshold() {
   else {
     const j = await r.json().catch(() => ({}));
     alert((j.error && j.error.message) || 'Could not save the threshold');
+  }
+}
+
+async function saveRunWindow() {
+  const r = await fetch('/api/settings', {method:'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      run_window_start: document.getElementById('winStart').value,
+      run_window_end: document.getElementById('winEnd').value})});
+  if (r.ok) winEdited = false;
+  else {
+    const j = await r.json().catch(() => ({}));
+    alert((j.error && j.error.message) || 'Could not save the job schedule');
+  }
+}
+
+async function toggleStopAll() {
+  if (!jobsPaused && !confirm('Stop all jobs on every PC?')) return;
+  const r = await fetch('/api/settings', {method:'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({jobs_paused: !jobsPaused})});
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    alert((j.error && j.error.message) || 'Could not change job state');
   }
 }
 

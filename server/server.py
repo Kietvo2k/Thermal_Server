@@ -54,7 +54,7 @@ from scheduler import (
     MAX_ATTEMPTS, RoundRobinCursor, reap_expired, schedule_once,
     SCHEDULE_EVERY_S,
 )
-from settings import Settings
+from settings import Settings, in_run_window
 from store import TelemetryStore
 from weather import WeatherService, apply_weather_to_esg
 
@@ -845,6 +845,7 @@ def run_forecast_cycle(state, now):
                 else (prev.power_source if prev and prev.power_source
                       in ("sensor", "model") else "sensor")),
             inflight=prev.inflight if prev else 0,
+            user_active=prev.user_active if prev else False,
             max_concurrent=prev.max_concurrent if prev else 1,
             model_ready=False if prev is None else prev.model_ready,
             model_id=prev.model_id if prev else None,
@@ -937,6 +938,19 @@ def _release_active_on_stale(state, node, now):
     _release_active(state, node, now, code="NODE_STALE", reason="STALE")
 
 
+class _ChatOnlyQueue:
+    # Outside the run window: hand out chat only; burn jobs wait.
+    def __init__(self, queue):
+        self._queue = queue
+
+    def pending(self):
+        return [j for j in self._queue.pending()
+                if (j.get("type") or "burn") == "chat"]
+
+    def __getattr__(self, name):
+        return getattr(self._queue, name)
+
+
 def run_scheduler_cycle(state, now):
     """Thu hồi giữ chỗ hết hạn rồi gán job. Inflight qua ForecastCache API."""
     cfg = state.settings.get()
@@ -945,12 +959,20 @@ def run_scheduler_cycle(state, now):
 
     reap_expired(state.forecast_cache, state.balancer, now)
     _release_expired_active(state, now)
-    schedule_once(
-        state.forecast_cache, state.balancer, state.settings.weights(), now,
-        mode=cfg.get("scheduler_mode", "thermal_aware"),
-        reservation_timeout_s=cfg.get("reservation_timeout_s", 20.0),
-        rr_cursor=state.rr_cursor,
-    )
+    # Admin "Stop all jobs": hand out nothing.
+    if not cfg.get("jobs_paused"):
+        lt = time.localtime(now)
+        minute = lt.tm_hour * 60 + lt.tm_min
+        queue = state.balancer
+        if not in_run_window(cfg.get("run_window_start", ""),
+                             cfg.get("run_window_end", ""), minute):
+            queue = _ChatOnlyQueue(state.balancer)
+        schedule_once(
+            state.forecast_cache, queue, state.settings.weights(), now,
+            mode=cfg.get("scheduler_mode", "thermal_aware"),
+            reservation_timeout_s=cfg.get("reservation_timeout_s", 20.0),
+            rr_cursor=state.rr_cursor,
+        )
     # Chat jobs that disappeared into fail()
     for jid in live_before:
         failed = state.balancer.get_failed(jid)
@@ -1020,7 +1042,7 @@ def apply_job_result(state, node: str, body_or_dict, now: float):
         data = dict(body_or_dict)
     job_id = data["job_id"]
     status = data.get("status") or "ok"
-    if status not in ("ok", "error", "timeout"):
+    if status not in ("ok", "error", "timeout", "preempted"):
         raise ApiError(422, "BAD_REQUEST", "status phải là ok|error|timeout.")
     energy_source = data.get("energy_source") or "none"
     energy_j = data.get("energy_j")
@@ -1137,6 +1159,25 @@ def _finalize_job_result(state, *, job_id, node, data, now, done, status, detail
     """Ghi side-effect của result trong ``LifecycleGate.commit_section``."""
     if node != HOST_NODE:
         state.forecast_cache.adjust_inflight(node, -1)
+
+    if status == "preempted":
+        # Step 4b: a person came back to this PC. Not the PC's fault:
+        # no error count, no used attempt, no ESG "job_completed".
+        if node != HOST_NODE:
+            # Telemetry comes every ~2 s; mark the PC busy now so the
+            # scheduler does not hand the same job straight back.
+            state.forecast_cache.patch(node, user_active=True)
+        done["attempts"] = max(0, attempts - 1)
+        state.balancer.return_job_to_pending(done)
+        if job_type == "chat":
+            pos = state.balancer.queue_position(job_id) or 1
+            state.chat.mark_queued(
+                job_id, queue_position=pos,
+                estimated_wait_s=float(pos) * 8.0, now=now)
+        record_esg_event(state, now, display_node, "job_preempted", detail)
+        log.info("[SCHED] job %s preempted on %s (user active) -> requeued",
+                 job_id, node)
+        return {"ok": True, "requeued": True}
 
     if status != "ok":
         detail["error_message"] = err_msg
@@ -1380,6 +1421,7 @@ def build_state_payload(state, now, *, compact=False):
             "decision_threshold_c": fc.effective_threshold_c,
             "delta_t": fc.delta_t_c,
             "flagged": fc.state == "AT_RISK",
+            "user_active": fc.user_active,
             "state": fc.state,
             "reason": fc.reason,
             "dispatched": stats["dispatched"].get(node, 0),
@@ -1396,6 +1438,9 @@ def build_state_payload(state, now, *, compact=False):
                "forecast_source": forecast_source,
                "llm_model_id": mid,
                "queue_len": stats["queue_len"],
+               "jobs_paused": bool(s.get("jobs_paused")),
+               "run_window_start": s.get("run_window_start", ""),
+               "run_window_end": s.get("run_window_end", ""),
                "nodes": nodes}
     if not compact:
         payload["llm_model_display"] = mdisp
@@ -1769,11 +1814,13 @@ class IngestBody(BaseModel):
     power_w: float | None = Field(default=None, allow_inf_nan=False)
     cpu_clock_mhz: float | None = Field(default=None, allow_inf_nan=False)
     fan_rpm: float | None = Field(default=None, allow_inf_nan=False)
+    seconds_since_input: float | None = Field(
+        default=None, allow_inf_nan=False)
     power_source: Literal["sensor", "model", "none"] = "none"
 
     @field_validator(
         "ts", "cpu_temp", "gpu_temp", "cpu_util", "power_w",
-        "cpu_clock_mhz", "fan_rpm", mode="before")
+        "cpu_clock_mhz", "fan_rpm", "seconds_since_input", mode="before")
     @classmethod
     def reject_boolean_metrics(cls, value):
         if isinstance(value, bool):
@@ -1791,6 +1838,9 @@ class SettingsBody(BaseModel):
     model_id: str | None = None
     allow_tunnel: bool | None = None
     site_id: str | None = None
+    run_window_start: str | None = None
+    run_window_end: str | None = None
+    jobs_paused: bool | None = None
 
     @field_validator(
         "threshold_c", "w_cool", "w_idle", "w_power", "w_load",
@@ -1805,7 +1855,7 @@ class SettingsBody(BaseModel):
 class JobResultBody(BaseModel):
     job_id: str
     attempt_id: str | None = Field(default=None, max_length=64)
-    status: Literal["ok", "error", "timeout"] = "ok"
+    status: Literal["ok", "error", "timeout", "preempted"] = "ok"
     text: str | None = Field(default=None, max_length=JOB_RESULT_TEXT_MAX_CHARS)
     tokens_in: int | None = None
     tokens_out: int | None = None
@@ -2239,6 +2289,8 @@ p{{line-height:1.55;color:#c5d2e6}}</style><main><h1>Tham gia làm máy khách</
         power_w = _finite_optional(
             "power_w", body.power_w, lo=0.0, hi=2_000.0)
         client_ts = _finite_optional("ts", body.ts)
+        secs = _finite_optional(
+            "seconds_since_input", body.seconds_since_input, lo=0.0)
         server_ts = time.time()
         with state.lifecycle.mutation_section():
             _room_mut_begin(state, auth, now=server_ts)
@@ -2267,6 +2319,13 @@ p{{line-height:1.55;color:#c5d2e6}}</style><main><h1>Tham gia làm máy khách</
             if power_source in ("sensor", "model"):
                 state.forecast_cache.patch(
                     node, power_w=power_w, power_source=power_source)
+            # Step 4a: a PC with recent keyboard/mouse input gets no new
+            # jobs. The Host's own PC is exempt.
+            idle_after = float(
+                state.settings.get().get("user_idle_after_s", 120.0))
+            user_active = (secs is not None and secs < idle_after
+                           and node != state.local_agent.get("node"))
+            state.forecast_cache.patch(node, user_active=user_active)
             _invalidate_state_cache(state)
         return JSONResponse(
             status_code=202,
@@ -2328,7 +2387,21 @@ p{{line-height:1.55;color:#c5d2e6}}</style><main><h1>Tham gia làm máy khách</
                                     401, "TOKEN_REVOKED",
                                     "Token đã bị thu hồi hoặc phòng đã đổi.")
                             state.lifecycle.ensure_commit_allowed()
-                        job = state.balancer.claim(who, now=now)
+                        fc = state.forecast_cache.get(who)
+                        if state.settings.get().get("jobs_paused"):
+                            job = None  # all jobs stopped by admin
+                        elif fc is not None and fc.user_active:
+                            # Step 4b: a person is using this PC; give its
+                            # reserved job back to the queue.
+                            for jid in state.balancer.release_reservations_for(
+                                    who):
+                                if who != HOST_NODE:
+                                    state.forecast_cache.adjust_inflight(
+                                        who, -1)
+                                state.chat.mark_queued(jid, now=now)
+                            job = None
+                        else:
+                            job = state.balancer.claim(who, now=now)
                         if job is not None:
                             if (job.get("type") or "burn") == "chat":
                                 state.chat.mark_running(
@@ -2597,6 +2670,34 @@ p{{line-height:1.55;color:#c5d2e6}}</style><main><h1>Tham gia làm máy khách</
                 except ValueError as e:
                     raise ApiError(422, "BAD_SETTINGS", str(e)) from e
                 log.info("[SETTINGS] site_id=%s", body.site_id)
+            if (body.run_window_start is not None
+                    or body.run_window_end is not None):
+                try:
+                    state.settings.set_run_window(
+                        body.run_window_start or "", body.run_window_end or "")
+                except ValueError as e:
+                    raise ApiError(422, "BAD_SETTINGS", str(e)) from e
+                cfg = state.settings.get()
+                log.info("[SETTINGS] run_window=%s-%s",
+                         cfg["run_window_start"], cfg["run_window_end"])
+            if body.jobs_paused is not None:
+                state.settings.set_jobs_paused(body.jobs_paused)
+                if body.jobs_paused:
+                    # Take back running jobs and reservations at once.
+                    for node, _ in state.balancer.list_active():
+                        _release_active(state, node, now,
+                                        code="STOPPED_BY_ADMIN",
+                                        reason="stop all")
+                    targets = {j.get("target")
+                               for j in state.balancer.reserved()
+                               if j.get("target")}
+                    for node in targets:
+                        released = state.balancer.release_reservations_for(node)
+                        for jid in released:
+                            if node != HOST_NODE:
+                                state.forecast_cache.adjust_inflight(node, -1)
+                            state.chat.mark_queued(jid, now=now)
+                log.info("[SETTINGS] jobs_paused=%s", body.jobs_paused)
             _invalidate_state_cache(state)
             return {"ok": True, "settings": state.settings.get()}
 
@@ -2921,6 +3022,7 @@ p{{line-height:1.55;color:#c5d2e6}}</style><main><h1>Tham gia làm máy khách</
                             "dashboard.html")
         return FileResponse(path)
 
+    @app.get("/dashboard.html")
     @app.get("/")
     def index():
         return _dashboard_html()
@@ -2937,11 +3039,13 @@ p{{line-height:1.55;color:#c5d2e6}}</style><main><h1>Tham gia làm máy khách</
     def app_page():
         return _dashboard_html()
 
+    @app.get("/business.html")
     @app.get("/business")
     def business_page():
         return FileResponse(os.path.join(os.path.dirname(__file__), "static",
                                          "business.html"))
 
+    @app.get("/night-shift.html")
     @app.get("/night-shift")
     def night_shift_page():
         return FileResponse(os.path.join(os.path.dirname(__file__), "static",
@@ -3119,7 +3223,10 @@ def host_claim_once(state, now: float | None = None):
             state.lifecycle._before_host_claim_hook = None
             hook()
             state.lifecycle.ensure_commit_allowed()
-        job = state.balancer.claim(HOST_NODE, now=now)
+        if state.settings.get().get("jobs_paused"):
+            job = None  # all jobs stopped by admin
+        else:
+            job = state.balancer.claim(HOST_NODE, now=now)
         if job is not None and (job.get("type") or "burn") == "chat":
             state.chat.mark_running(job["id"], "host", now=now)
         return job

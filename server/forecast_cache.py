@@ -48,6 +48,8 @@ class NodeForecast:
     state_changed_at: float = 0.0
     computed_at: float = 0.0
     reason: str = ""
+    # Step 4a: recent keyboard/mouse input on this PC. Only /ingest sets it.
+    user_active: bool = False
 
     @property
     def flagged(self) -> bool:
@@ -79,6 +81,7 @@ class ForecastCache:
             nf = _copy(forecast)
             if prev is not None:
                 nf.inflight = prev.inflight
+                nf.user_active = prev.user_active
                 nf.recently_failed_until = prev.recently_failed_until
                 nf.consecutive_errors = prev.consecutive_errors
             self._nodes[forecast.node] = nf
@@ -159,6 +162,7 @@ class ForecastCache:
                 recently_failed_until=(
                     prev.recently_failed_until if prev else 0.0),
                 consecutive_errors=prev.consecutive_errors if prev else 0,
+                user_active=prev.user_active if prev else False,
                 model_ready=bool(model_ready),
                 model_id=model_id,
                 model_sha256=model_sha256,

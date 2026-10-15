@@ -90,6 +90,9 @@ def filter_candidates(cache: dict, job: dict, now: float, *,
             allowed = ("READY", "WARMING_UP", "AT_RISK")
         if f.state not in allowed:
             rejected[node] = f"state_{f.state.lower()}"
+        elif getattr(f, "user_active", False):
+            # Step 4a: a staff member is using this PC — no new jobs.
+            rejected[node] = "user_active"
         elif f.inflight >= f.max_concurrent:
             rejected[node] = f"busy ({f.inflight}/{f.max_concurrent})"
         elif job_type == "chat" and not f.model_ready:

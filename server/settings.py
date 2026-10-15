@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import os
+import re
 
 log = logging.getLogger("settings")
 
@@ -24,9 +25,39 @@ DEFAULTS = {
     "allow_tunnel": True,
     # site_id cho thời tiết / cooling_factor (M12: không vào score)
     "site_id": "hanoi-office-4f",
+    # After-hours window for burn jobs ("HH:MM", Host local time). Both "" = always on.
+    "run_window_start": "",
+    "run_window_end": "",
+    # Admin "Stop all jobs": no job is handed out or claimed while true.
+    "jobs_paused": False,
+    # Step 4a: input within this many seconds = user active (0 = off). Edit settings.json to tune.
+    "user_idle_after_s": 120.0,
 }
 
 WEIGHT_KEYS = ("w_cool", "w_idle", "w_power", "w_load")
+
+
+def _hhmm_minutes(value):
+    """"HH:MM" (two digits each) -> minute of day, or None if not valid."""
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{2}:[0-9]{2}", value):
+        return None
+    h, m = int(value[:2]), int(value[3:])
+    if h > 23 or m > 59:
+        return None
+    return h * 60 + m
+
+
+def in_run_window(start, end, minute_of_day):
+    """True if burn jobs may run now. Empty start or end = always on."""
+    if not start or not end:
+        return True
+    s, e = _hhmm_minutes(start), _hhmm_minutes(end)
+    if s is None or e is None:
+        return True
+    if s < e:
+        return s <= minute_of_day < e
+    # Window crosses midnight (e.g. 17:30-06:30)
+    return minute_of_day >= s or minute_of_day < e
 
 
 class Settings:
@@ -39,6 +70,11 @@ class Settings:
                 self._data.update({k: loaded[k] for k in DEFAULTS if k in loaded})
         # Chuẩn hóa kiểu bool cho allow_tunnel (JSON có thể là 0/1)
         self._data["allow_tunnel"] = bool(self._data.get("allow_tunnel", True))
+        self._data["jobs_paused"] = bool(self._data.get("jobs_paused", False))
+        if (_hhmm_minutes(self._data.get("run_window_start")) is None
+                or _hhmm_minutes(self._data.get("run_window_end")) is None):
+            self._data["run_window_start"] = ""
+            self._data["run_window_end"] = ""
         self._sanitize_finite_values()
         self._sanitize_model_id()
 
@@ -47,7 +83,7 @@ class Settings:
         changed = False
         numeric_keys = (
             "threshold_c", "w_cool", "w_idle", "w_power", "w_load",
-            "reservation_timeout_s", "max_temp_margin_c",
+            "reservation_timeout_s", "max_temp_margin_c", "user_idle_after_s",
         )
         for key in numeric_keys:
             value = self._data.get(key)
@@ -146,4 +182,21 @@ class Settings:
         if not site_id:
             raise ValueError("site_id empty")
         self._data["site_id"] = site_id
+        self._persist()
+
+    def set_run_window(self, start, end):
+        start = str(start or "").strip()
+        end = str(end or "").strip()
+        if start or end:
+            s, e = _hhmm_minutes(start), _hhmm_minutes(end)
+            if s is None or e is None:
+                raise ValueError("run window must be two HH:MM times, or both empty")
+            if s == e:
+                raise ValueError("run window start and end must differ")
+        self._data["run_window_start"] = start
+        self._data["run_window_end"] = end
+        self._persist()
+
+    def set_jobs_paused(self, paused):
+        self._data["jobs_paused"] = bool(paused)
         self._persist()

@@ -585,6 +585,7 @@ var telemetryLoop = Task.Run(async () =>
                 ["power_source"] = powerSource,
                 ["cpu_clock_mhz"] = s.CpuClockMhz,
                 ["fan_rpm"] = s.FanRpm,
+                ["seconds_since_input"] = UserActivity.SecondsSinceInput(),
             });
             using (var resp = await SendFailoverAsync(
                 h => h.PostAsync("/ingest",
@@ -895,10 +896,24 @@ var jobLoop = Task.Run(async () =>
                     + $"{(cores == 0 ? "all" : cores.ToString())} cores");
                 var burnEnergy = new EnergySampler(powerModel);
                 var burnEnd = DateTime.UtcNow.AddSeconds(duration);
-                var burnTask = Task.Run(() => JobRunner.Run(duration, cores));
+                using var burnCts = new CancellationTokenSource();
+                var burnStart = DateTime.UtcNow;
+                var burnTask = Task.Run(
+                    () => JobRunner.Run(duration, cores, burnCts.Token));
                 double? burnMinClock = null;
+                var preempted = false;
                 while (DateTime.UtcNow < burnEnd && !burnTask.IsCompleted)
                 {
+                    // Input that happened after the job started means a person
+                    // is back at this PC: stop the burn and give the PC back.
+                    if (UserActivity.SecondsSinceInput() is double si
+                        && si < (DateTime.UtcNow - burnStart).TotalSeconds)
+                    {
+                        preempted = true;
+                        burnCts.Cancel();
+                        Log($"[JOB] {id} preempted: user input on this PC");
+                        break;
+                    }
                     var bs = sensors.Read();
                     burnEnergy.Sample(bs.PowerW, bs.CpuUtil, bs.CpuTemp);
                     if (bs.CpuClockMhz is double clk)
@@ -908,11 +923,11 @@ var jobLoop = Task.Run(async () =>
                 }
                 await burnTask;
                 var (bej, bes) = burnEnergy.Finalize();
-                Log($"[JOB] {id} done energy_source={bes}");
+                Log($"[JOB] {id} done energy_source={bes} preempted={preempted}");
                 await PostResultAsync(new Dictionary<string, object?>
                 {
                     ["job_id"] = id,
-                    ["status"] = "ok",
+                    ["status"] = preempted ? "preempted" : "ok",
                     ["energy_j"] = bej,
                     ["energy_source"] = bes,
                     ["min_clock_mhz"] = burnMinClock,
